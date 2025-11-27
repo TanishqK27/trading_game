@@ -1,203 +1,326 @@
+"""Core models for the Open Outcry trading game."""
 from __future__ import annotations
 
 import math
-import random
 import time
 import uuid
-from dataclasses import dataclass
-from typing import Dict, List
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
-from game_config import ASSET_BASELINES, ASSETS, ASSET_FRIENDLY_NAMES, EVENTS
+from game_config import (
+    IMPACT_FACTOR,
+    IMPACT_SIZE,
+    INSTRUMENTS,
+    NEWS_EVENTS,
+    SESSION_DURATION_SECONDS,
+    STARTING_CASH,
+    TICK_SECONDS,
+)
+
+
+@dataclass
+class Instrument:
+    code: str
+    name: str
+    base_price: float
+    last_price: float = field(init=False)
+
+    def __post_init__(self):
+        self.last_price = self.base_price
+
+
+@dataclass
+class Order:
+    id: str
+    team: str
+    instrument: str
+    side: str  # buy or sell
+    qty: float
+    limit_price: Optional[float]
+    remaining: float
+    timestamp: float
+
+    @property
+    def is_buy(self) -> bool:
+        return self.side.lower() == "buy"
+
+
+@dataclass
+class Trade:
+    id: str
+    instrument: str
+    price: float
+    qty: float
+    buy_team: str
+    sell_team: str
+    timestamp: float
 
 
 @dataclass
 class Team:
     name: str
-    nav_history: List[float]
-    allocation: Dict[str, float]
+    cash: float = STARTING_CASH
+    positions: Dict[str, float] = field(default_factory=dict)
+    nav_history: List[float] = field(default_factory=list)
+    fills: List[Trade] = field(default_factory=list)
 
     @property
     def current_nav(self) -> float:
-        return self.nav_history[-1]
+        return self.nav_history[-1] if self.nav_history else STARTING_CASH
+
+    def record_nav(self, nav: float) -> None:
+        self.nav_history.append(nav)
 
 
 class GameState:
-    def __init__(self, starting_nav: float = 100.0, total_duration_seconds: int = 40 * 60, tick_seconds: int = 3):
-        self.starting_nav = starting_nav
-        self.total_duration_seconds = total_duration_seconds
-        self.tick_seconds = tick_seconds
-        self.assets = ASSETS
-        self.teams: Dict[str, Team] = {}
-        self.asset_index_histories: Dict[str, List[float]] = {asset: [100.0] for asset in self.assets}
-        self.market_index_history: List[float] = [100.0]
-        self.flow_skew: Dict[str, float] = {asset: 0.0 for asset in self.assets}
-        self.trade_requests: List[Dict[str, str]] = []
-        self.news_feed: List[Dict[str, str]] = []
-        self.game_start_ts = time.time()
-        self.last_tick_ts = self.game_start_ts
-        self.sim_day = 0
-        self.events = sorted(EVENTS, key=lambda e: e["time_offset"])
-        self._timestamp_message("Session armed — continuous tape live for 40 minutes. No rounds, pure flow.")
-
-    @property
-    def is_finished(self) -> bool:
-        return self.total_seconds_left <= 0
-
-    @property
-    def total_seconds_left(self) -> int:
-        elapsed = int(time.time() - self.game_start_ts)
-        remaining = self.total_duration_seconds - elapsed
-        return max(0, remaining)
-
-    def _timestamp_message(self, message: str) -> None:
-        ts = time.strftime("%H:%M:%S", time.localtime())
-        self.news_feed.append({"time": ts, "message": message})
-        if len(self.news_feed) > 120:
-            self.news_feed = self.news_feed[-120:]
-
-    def register_team(self, name: str) -> None:
-        normalized = name.strip()
-        if not normalized:
-            raise ValueError("Team name cannot be empty.")
-        for existing in self.teams:
-            if existing.lower() == normalized.lower():
-                raise ValueError("That team name is already taken.")
-        default_alloc = {asset: (1.0 if asset == "CASH" else 0.0) for asset in self.assets}
-        self.teams[normalized] = Team(name=normalized, nav_history=[self.starting_nav], allocation=default_alloc)
-        self._timestamp_message(f"Team {normalized} connected to the tape.")
-
-    def update_allocation(self, team_name: str, weights: Dict[str, float]) -> None:
-        if team_name not in self.teams:
-            raise ValueError("Team not registered.")
-        clean = {asset: max(0.0, weights.get(asset, 0.0)) for asset in self.assets}
-        total = sum(clean.values())
-        if total <= 0:
-            raise ValueError("Provide at least one positive weight.")
-        normalized = {asset: val / total for asset, val in clean.items()}
-        self.teams[team_name].allocation = normalized
-        self._timestamp_message(f"{team_name} refreshed allocation; flows updating.")
-
-    def add_trade_request(self, team_name: str, asset: str, side: str, price: str, note: str = "") -> str:
-        if asset not in self.assets:
-            raise ValueError("Unknown asset")
-        if side.lower() not in {"long", "short"}:
-            raise ValueError("Side must be long or short")
-        trade_id = uuid.uuid4().hex[:8]
-        payload = {
-            "id": trade_id,
-            "team": team_name,
-            "asset": asset,
-            "side": side.lower(),
-            "price": price,
-            "note": note,
-            "status": "pending",
-            "ts": time.strftime("%H:%M:%S", time.localtime()),
+    def __init__(self, start_time: Optional[float] = None):
+        self.instruments: Dict[str, Instrument] = {
+            inst["code"]: Instrument(inst["code"], inst["name"], inst["base_price"]) for inst in INSTRUMENTS
         }
-        self.trade_requests.append(payload)
-        self._timestamp_message(f"{team_name} yells {side.upper()} {asset} @ {price} — host to confirm.")
-        return trade_id
+        self.teams: Dict[str, Team] = {}
+        self.orderbooks: Dict[str, Dict[str, List[Order]]] = {
+            code: {"bids": [], "asks": []} for code in self.instruments
+        }
+        self.trades: List[Trade] = []
+        self.news_feed: List[Dict[str, str]] = []
+        self.news_cursor = 0
+        self.start_time = start_time or time.time()
+        self.last_tick = self.start_time
+        self.active = True
+        self.duration = SESSION_DURATION_SECONDS
+        self.tick_seconds = TICK_SECONDS
+        self.price_history: Dict[str, List[Dict[str, float]]] = {
+            code: [{"t": 0, "p": inst.base_price}] for code, inst in self.instruments.items()
+        }
 
-    def accept_trade(self, trade_id: str) -> None:
-        for trade in self.trade_requests:
-            if trade["id"] == trade_id and trade.get("status") == "pending":
-                trade["status"] = "accepted"
-                magnitude = 0.015
-                if trade["side"] == "short":
-                    magnitude *= -1
-                self.flow_skew[trade["asset"]] = max(min(self.flow_skew.get(trade["asset"], 0.0) + magnitude, 0.12), -0.12)
-                self._timestamp_message(f"HOST FILLED {trade['side'].upper()} {trade['asset']} @ {trade['price']} for {trade['team']}")
-                return
-        raise ValueError("Trade not found or already processed")
+    @property
+    def elapsed(self) -> float:
+        return max(0.0, time.time() - self.start_time)
 
-    def reject_trade(self, trade_id: str) -> None:
-        for trade in self.trade_requests:
-            if trade["id"] == trade_id and trade.get("status") == "pending":
-                trade["status"] = "rejected"
-                self._timestamp_message(f"HOST REJECTED {trade['side'].upper()} {trade['asset']} for {trade['team']}")
-                return
-        raise ValueError("Trade not found or already processed")
+    @property
+    def remaining(self) -> float:
+        return max(0.0, self.duration - self.elapsed)
 
-    def _flow_adjustments(self) -> Dict[str, float]:
-        if not self.teams:
-            return {asset: 0.0 for asset in self.assets}
-        baseline = 1.0 / len(self.assets)
-        total_weights = {asset: 0.0 for asset in self.assets}
-        for team in self.teams.values():
-            for asset in self.assets:
-                total_weights[asset] += team.allocation.get(asset, 0.0)
-        avg_weights = {asset: total_weights[asset] / len(self.teams) for asset in self.assets}
-        adj = {}
-        for asset, weight in avg_weights.items():
-            skew = weight - baseline
-            trade_skew = self.flow_skew.get(asset, 0.0)
-            adj[asset] = max(min(skew * 0.4 + trade_skew, 0.08), -0.08)
-        return adj
+    def reset(self):
+        self.__init__()
 
-    def _event_impact(self, now: float) -> Dict[str, float]:
-        elapsed = now - self.game_start_ts
-        impact = {asset: 0.0 for asset in self.assets}
-        for event in self.events:
-            if elapsed >= event["time_offset"]:
-                decay = math.exp(-(elapsed - event["time_offset"]) / 240)
-                for asset, shock in event["impact"].items():
-                    impact[asset] += shock * decay
-        return impact
+    def register_team(self, name: str):
+        if not name:
+            raise ValueError("Team name is required.")
+        if name in self.teams:
+            raise ValueError("Team name already taken.")
+        team = Team(name=name)
+        team.record_nav(STARTING_CASH)
+        self.teams[name] = team
 
-    def _simulate_step(self) -> None:
-        self.sim_day += 1
-        now = time.time()
-        event_impacts = self._event_impact(now)
-        flow_adj = self._flow_adjustments()
+    def place_order(self, team_name: str, instrument: str, side: str, qty: float, limit_price: Optional[float]):
+        if team_name not in self.teams:
+            raise ValueError("Unknown team.")
+        if instrument not in self.instruments:
+            raise ValueError("Unknown instrument.")
+        if qty <= 0:
+            raise ValueError("Quantity must be positive.")
+        side = side.lower()
+        if side not in {"buy", "sell"}:
+            raise ValueError("Side must be buy or sell.")
 
-        avg_allocation = {asset: 0.0 for asset in self.assets}
-        if self.teams:
-            for team in self.teams.values():
-                for asset in self.assets:
-                    avg_allocation[asset] += team.allocation.get(asset, 0.0)
-            avg_allocation = {asset: val / len(self.teams) for asset, val in avg_allocation.items()}
+        order = Order(
+            id=str(uuid.uuid4())[:8],
+            team=team_name,
+            instrument=instrument,
+            side=side,
+            qty=qty,
+            remaining=qty,
+            limit_price=limit_price,
+            timestamp=time.time(),
+        )
+        book = self.orderbooks[instrument]
+        self._match(order, book)
+        if order.remaining > 0:
+            book_key = "bids" if order.is_buy else "asks"
+            book[book_key].append(order)
+            self._sort_book(instrument)
+        self.mark_to_market()
+
+    def _sort_book(self, instrument: str):
+        book = self.orderbooks[instrument]
+        book["bids"].sort(key=lambda o: (-o.limit_price if o.limit_price is not None else float("inf"), o.timestamp))
+        book["asks"].sort(key=lambda o: (o.limit_price if o.limit_price is not None else 0.0, o.timestamp))
+
+    def _match(self, incoming: Order, book: Dict[str, List[Order]]):
+        opposite_key = "asks" if incoming.is_buy else "bids"
+        same_key = "bids" if incoming.is_buy else "asks"
+        opposite = book[opposite_key]
+
+        def price_crosses(a: Order, b: Order) -> bool:
+            if a.limit_price is None or b.limit_price is None:
+                return True
+            if a.is_buy:
+                return a.limit_price >= b.limit_price
+            return b.limit_price >= a.limit_price
+
+        while incoming.remaining > 0 and opposite:
+            best = opposite[0]
+            if not price_crosses(incoming, best):
+                break
+            trade_qty = min(incoming.remaining, best.remaining)
+            trade_price = best.limit_price if best.limit_price is not None else incoming.limit_price or self.instruments[incoming.instrument].last_price
+            self._execute_trade(incoming, best, trade_qty, trade_price)
+            if best.remaining <= 0:
+                opposite.pop(0)
+        # Resort after possible modifications
+        book[opposite_key] = opposite
+        self._sort_book(incoming.instrument)
+        # If incoming was market and still remains, convert to resting with last price
+        if incoming.remaining > 0 and incoming.limit_price is None:
+            incoming.limit_price = self.instruments[incoming.instrument].last_price
+
+    def _execute_trade(self, incoming: Order, resting: Order, qty: float, price: float):
+        incoming.remaining -= qty
+        resting.remaining -= qty
+
+        if incoming.is_buy:
+            buy_team = self.teams[incoming.team]
+            sell_team = self.teams[resting.team]
         else:
-            avg_allocation = {asset: 1.0 / len(self.assets) for asset in self.assets}
+            buy_team = self.teams[resting.team]
+            sell_team = self.teams[incoming.team]
 
-        market_return = 0.0
-        asset_returns: Dict[str, float] = {}
-        for asset in self.assets:
-            base = ASSET_BASELINES[asset]
-            shock = random.gauss(base["drift"], base["vol"])
-            total_return = shock + event_impacts.get(asset, 0.0) + flow_adj.get(asset, 0.0)
-            asset_returns[asset] = total_return
-            market_return += avg_allocation.get(asset, 0.0) * total_return
-            next_level = self.asset_index_histories[asset][-1] * (1 + total_return)
-            self.asset_index_histories[asset].append(max(next_level, 0.01))
+        buy_team.cash -= price * qty
+        sell_team.cash += price * qty
+        buy_team.positions[incoming.instrument] = buy_team.positions.get(incoming.instrument, 0.0) + qty
+        sell_team.positions[incoming.instrument] = sell_team.positions.get(incoming.instrument, 0.0) - qty
 
-        self.market_index_history.append(max(self.market_index_history[-1] * (1 + market_return), 0.01))
+        trade = Trade(
+            id=str(uuid.uuid4())[:8],
+            instrument=incoming.instrument,
+            price=price,
+            qty=qty,
+            buy_team=buy_team.name,
+            sell_team=sell_team.name,
+            timestamp=time.time(),
+        )
+        self.trades.append(trade)
+        buy_team.fills.append(trade)
+        sell_team.fills.append(trade)
 
-        for team in self.teams.values():
-            portfolio_return = sum(team.allocation.get(asset, 0.0) * asset_returns[asset] for asset in self.assets)
-            new_nav = team.current_nav * (1 + portfolio_return)
-            team.nav_history.append(max(new_nav, 0.01))
+        # price impact
+        impact = (qty / IMPACT_SIZE) * IMPACT_FACTOR
+        direction = 1 if incoming.is_buy else -1
+        self._nudge_price(incoming.instrument, direction * impact)
 
-        # decay flow skew so bursts fade quickly
-        self.flow_skew = {asset: value * 0.55 for asset, value in self.flow_skew.items()}
+    def _nudge_price(self, instrument: str, pct_move: float):
+        inst = self.instruments[instrument]
+        inst.last_price = max(0.01, inst.last_price * (1 + pct_move))
 
-    def sync_to_time(self) -> None:
-        if self.is_finished:
-            return
+    def tick(self):
         now = time.time()
-        steps = int((now - self.last_tick_ts) // self.tick_seconds)
-        if steps <= 0:
-            return
-        for _ in range(steps):
-            self._simulate_step()
-        self.last_tick_ts += steps * self.tick_seconds
+        while self.last_tick + self.tick_seconds <= now and self.active:
+            self.last_tick += self.tick_seconds
+            t_elapsed = self.last_tick - self.start_time
+            self._process_news(t_elapsed)
+            for inst in self.instruments.values():
+                # mean reversion to base price with noise
+                anchor = inst.base_price
+                distance = (inst.last_price - anchor) / anchor
+                revert = -0.05 * distance
+                noise = 0.01 * math.sin(t_elapsed / 15.0 + hash(inst.code) % 7) + 0.003 * math.cos(t_elapsed / 9.0)
+                shock_bias = 0.0
+                for n in self.news_feed[-3:]:
+                    shock_bias += n.get("shock", {}).get(inst.code, 0.0) * 0.001
+                change = revert + noise + shock_bias
+                inst.last_price = max(0.01, inst.last_price * (1 + change))
+                self.price_history[inst.code].append({"t": t_elapsed, "p": inst.last_price})
+            self.mark_to_market()
+            if self.remaining <= 0:
+                self.active = False
+                break
 
-    def reset(self) -> None:
-        self.teams.clear()
-        self.asset_index_histories = {asset: [100.0] for asset in self.assets}
-        self.market_index_history = [100.0]
-        self.flow_skew = {asset: 0.0 for asset in self.assets}
-        self.trade_requests.clear()
-        self.news_feed.clear()
-        self.game_start_ts = time.time()
-        self.last_tick_ts = self.game_start_ts
-        self.sim_day = 0
-        self._timestamp_message("Simulation reset — tape restarted.")
+    def _process_news(self, elapsed_seconds: float):
+        while self.news_cursor < len(NEWS_EVENTS) and elapsed_seconds >= NEWS_EVENTS[self.news_cursor]["second"]:
+            event = NEWS_EVENTS[self.news_cursor]
+            payload = {"t": elapsed_seconds, "headline": event["headline"], "shock": event.get("shock", {})}
+            self.news_feed.append(payload)
+            self.news_cursor += 1
+
+    def mark_to_market(self):
+        prices = {code: inst.last_price for code, inst in self.instruments.items()}
+        for team in self.teams.values():
+            nav = team.cash
+            for code, qty in team.positions.items():
+                nav += qty * prices.get(code, 0.0)
+            team.record_nav(nav)
+
+    def state_for_team(self, team_name: Optional[str], include_private: bool = False) -> Dict:
+        self.tick()
+        team = self.teams.get(team_name) if team_name else None
+        data = {
+            "active": self.active,
+            "elapsed": self.elapsed,
+            "remaining": self.remaining,
+            "instruments": {
+                code: {
+                    "name": inst.name,
+                    "last_price": inst.last_price,
+                    "bid": self.orderbooks[code]["bids"][0].limit_price if self.orderbooks[code]["bids"] else None,
+                    "ask": self.orderbooks[code]["asks"][0].limit_price if self.orderbooks[code]["asks"] else None,
+                    "history": self.price_history[code][-200:],
+                }
+                for code, inst in self.instruments.items()
+            },
+            "news": self.news_feed[-20:],
+            "recent_trades": [
+                {
+                    "instrument": t.instrument,
+                    "price": t.price,
+                    "qty": t.qty,
+                    "timestamp": t.timestamp,
+                }
+                for t in self.trades[-40:]
+            ],
+        }
+        if team:
+            data["team"] = {
+                "name": team.name,
+                "cash": team.cash,
+                "positions": team.positions,
+                "nav_history": team.nav_history[-200:],
+                "fills": [
+                    {"instrument": t.instrument, "price": t.price, "qty": t.qty, "timestamp": t.timestamp}
+                    for t in team.fills[-20:]
+                ],
+            }
+        if include_private:
+            data["leaderboard"] = sorted(
+                (
+                    {
+                        "team": t.name,
+                        "nav": t.current_nav,
+                        "cash": t.cash,
+                    }
+                    for t in self.teams.values()
+                ),
+                key=lambda x: x["nav"],
+                reverse=True,
+            )
+            data["orderbooks"] = {
+                code: {
+                    "bids": [self._serialize_order(o) for o in book["bids"]],
+                    "asks": [self._serialize_order(o) for o in book["asks"]],
+                }
+                for code, book in self.orderbooks.items()
+            }
+        return data
+
+    @staticmethod
+    def _serialize_order(order: Order) -> Dict:
+        return {
+            "id": order.id,
+            "team": order.team,
+            "side": order.side,
+            "qty": order.qty,
+            "remaining": order.remaining,
+            "limit_price": order.limit_price,
+            "timestamp": order.timestamp,
+        }
+

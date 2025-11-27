@@ -2,27 +2,23 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Portfolio in Peril – Cardiff Edition</title>
+    <title>Open Outcry Trading Game</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body class="terminal-bg">
-<header class="terminal-bar">
-    <div class="container nav-bar">
-        <div class="brand">Portfolio in Peril</div>
-        <nav>
-            <a href="{{ url_for('index') }}">Home</a>
-            <a href="{{ url_for('play') }}">Play</a>
-            <a href="{{ url_for('leaderboard') }}">Leaderboard</a>
-            <a href="{{ url_for('admin') }}">Admin</a>
-        </nav>
+<body>
+<nav class="topbar">
+    <div class="brand">Open Outcry</div>
+    <div class="links">
+        <a href="{{ url_for('index') }}">Home</a>
+        <a href="{{ url_for('pit') }}">Pit</a>
+        <a href="{{ url_for('leaderboard') }}">Board</a>
+        <a href="{{ url_for('admin') }}">Admin</a>
     </div>
-</header>
-
-<main class="container">
+</nav>
+<main>
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
-            <div class="flash-messages">
+            <div class="flash-area">
                 {% for category, message in messages %}
                     <div class="flash {{ category }}">{{ message }}</div>
                 {% endfor %}
@@ -31,9 +27,5 @@
     {% endwith %}
     {% block content %}{% endblock %}
 </main>
-
-<footer>
-    <div class="container">Built for the Cardiff quant games night. Good luck!</div>
-</footer>
 </body>
 </html>

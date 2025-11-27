@@ -1,17 +1,12 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="hero">
-    <h1>Portfolio in Peril – Cardiff Edition</h1>
-    <p class="lede">A Bloomberg-terminal inspired, 40-minute continuous simulation. Charts tick every 3 seconds, news scrolls nonstop, and your P&L is private.</p>
-</section>
-
-<section class="card">
-    <h2>Join the game</h2>
-    <form method="post" class="stacked-form">
-        <label for="team_name">Enter your team name</label>
-        <input type="text" id="team_name" name="team_name" placeholder="e.g. Cardiff Quants" required>
-        <button type="submit">Join</button>
+    <h1>Open Outcry Trading Pit</h1>
+    <p>Grab a badge, join the pit, and shout your orders. Prices move from news, flow, and large fills.</p>
+    <form method="post" class="card">
+        <label>Team name</label>
+        <input type="text" name="team_name" placeholder="Team Phoenix" required>
+        <button type="submit">Print badge</button>
     </form>
-    <p class="hint">One entry per team. After registering, you will be redirected to the Play screen.</p>
 </section>
 {% endblock %}

@@ -1,100 +1,31 @@
-from __future__ import annotations
+"""Game configuration for the Open Outcry trading game."""
 
-import math
-import random
-from datetime import datetime
-from typing import Dict, List
+SESSION_DURATION_SECONDS = 40 * 60  # 40 minutes live tape
+TICK_SECONDS = 3  # price updates every 3 seconds
 
-# Core asset universe
-ASSETS: List[str] = [
-    "US_EQ",
-    "EU_EQ",
-    "ASIA_EQ",
-    "US_GOV",
-    "EU_GOV",
-    "EM_DEBT",
-    "GLOBAL_RE",
-    "CASH",
+INSTRUMENTS = [
+    {"code": "EQ_FUT", "name": "Equity Index Future", "base_price": 100.0},
+    {"code": "OIL", "name": "Crude Oil", "base_price": 72.0},
+    {"code": "GOLD", "name": "Gold", "base_price": 1950.0},
+    {"code": "RATE", "name": "10Y Rate Future", "base_price": 112.0},
+    {"code": "FX", "name": "GBP/USD", "base_price": 1.26},
 ]
 
-ASSET_FRIENDLY_NAMES: Dict[str, str] = {
-    "US_EQ": "US Equities",
-    "EU_EQ": "European Equities",
-    "ASIA_EQ": "Asian & EM Equities",
-    "US_GOV": "US Government Bonds",
-    "EU_GOV": "Euro Government Bonds",
-    "EM_DEBT": "Emerging Market Debt",
-    "GLOBAL_RE": "Global Real Estate",
-    "CASH": "Cash",
-}
-
-
-# Baseline daily drifts and volatilities (per simulated day)
-ASSET_BASELINES: Dict[str, Dict[str, float]] = {
-    "US_EQ": {"drift": 0.0006, "vol": 0.012},
-    "EU_EQ": {"drift": 0.00055, "vol": 0.0115},
-    "ASIA_EQ": {"drift": 0.0007, "vol": 0.013},
-    "US_GOV": {"drift": 0.00015, "vol": 0.0025},
-    "EU_GOV": {"drift": 0.00012, "vol": 0.0028},
-    "EM_DEBT": {"drift": 0.0004, "vol": 0.0065},
-    "GLOBAL_RE": {"drift": 0.00035, "vol": 0.0095},
-    "CASH": {"drift": 0.00005, "vol": 0.0},
-}
-
-
-# Macro shock timeline (seconds into the 40-minute run)
-# Each event can deliver immediate shocks plus decay thereafter.
-CURRENT_YEAR = datetime.utcnow().year
-EVENTS: List[Dict[str, object]] = [
-    {
-        "time_offset": 3 * 60,  # 3 minutes in
-        "headline": "Flash PMI miss sparks growth worries; desks lean risk-off.",
-        "impact": {"US_EQ": -0.012, "EU_EQ": -0.01, "ASIA_EQ": -0.014, "US_GOV": 0.004, "EU_GOV": 0.0035},
-    },
-    {
-        "time_offset": 10 * 60,  # 10 minutes
-        "headline": "Systematic deleveraging wave hits futures; liquidity thins across the board.",
-        "impact": {"US_EQ": -0.025, "EU_EQ": -0.021, "ASIA_EQ": -0.028, "GLOBAL_RE": -0.02, "EM_DEBT": -0.015},
-    },
-    {
-        "time_offset": 17 * 60,  # 17 minutes
-        "headline": "Central bank surprise statement pledges intraday liquidity backstop.",
-        "impact": {"US_EQ": 0.018, "EU_EQ": 0.016, "ASIA_EQ": 0.02, "US_GOV": -0.003, "EU_GOV": -0.0025},
-    },
-    {
-        "time_offset": 24 * 60,  # 24 minutes
-        "headline": "Mega fund rotates billions into cash; cross-asset vols pop again.",
-        "impact": {"US_EQ": -0.02, "EU_EQ": -0.017, "ASIA_EQ": -0.022, "GLOBAL_RE": -0.018, "EM_DEBT": -0.012},
-    },
-    {
-        "time_offset": 31 * 60,  # 31 minutes
-        "headline": "Stabilisation flows and buy-the-dip algos narrow losses into the close.",
-        "impact": {"US_EQ": 0.014, "EU_EQ": 0.012, "ASIA_EQ": 0.016, "GLOBAL_RE": 0.01},
-    },
-    {
-        "time_offset": 37 * 60,  # 37 minutes
-        "headline": "Late-session squeeze accelerates as shorts scramble to cover.",
-        "impact": {"US_EQ": 0.022, "EU_EQ": 0.018, "ASIA_EQ": 0.024, "GLOBAL_RE": 0.013, "EM_DEBT": 0.01},
-    },
+# News events fire over the 40-minute tape. They influence the drift and volatility for a period.
+NEWS_EVENTS = [
+    {"second": 60, "headline": "Opening bell: floor clerks brace for heavy flows as risk sentiment wobbles.", "shock": {"EQ_FUT": -0.3, "RATE": 0.15}},
+    {"second": 6 * 60, "headline": "Energy desk reports refinery outage; crude bids lift across pits.", "shock": {"OIL": 1.1}},
+    {"second": 10 * 60, "headline": "Central bank governor hints at emergency meeting; rates swing wider.", "shock": {"RATE": -0.8, "EQ_FUT": 0.25}},
+    {"second": 16 * 60, "headline": "Gold sees safe-haven demand after macro fund dumps risk.", "shock": {"GOLD": 0.7, "EQ_FUT": -0.5}},
+    {"second": 22 * 60, "headline": "Cross-asset volatility spikes; locals shout for wider markets.", "shock": {"EQ_FUT": -0.9, "OIL": -0.4}},
+    {"second": 28 * 60, "headline": "Rate stabilization whispers calm nerves; curve tightens.", "shock": {"RATE": 0.9, "EQ_FUT": 0.35}},
+    {"second": 34 * 60, "headline": "Late-session short covering squeezes equity futures and FX.", "shock": {"EQ_FUT": 1.2, "FX": 0.4}},
 ]
 
+# Default cash for each team
+STARTING_CASH = 1_000_000.0
 
-def random_live_headlines() -> List[str]:
-    base = [
-        "Desk chatter: vol sellers widen collars as intraday swings accelerate.",
-        "FX basis tics wider; funding desks report patchy USD liquidity.",
-        "Energy futures gap on inventory chatter; dealers cite shallow books.",
-        "Large pension rebalancing pinged; equity futures briefly lift.",
-        "Credit ETFs trade at discounts, prompting arb flows and hedges.",
-        "CTA trend signals flip; systematic supply hits index futures.",
-        "Tech megacaps drift as traders fade overnight headlines.",
-        "Financials lag peers on capital ratio chatter; CDS indices gap.",
-        "Real estate screens amber as rate path reprices intraday.",
-        "Macro pod shops skew short beta while discretionary funds nibble dips.",
-    ]
-    random.shuffle(base)
-    return base[:8]
+# Impact factor for large trades. Applied as (qty / IMPACT_SIZE) * impact_factor on price percent move.
+IMPACT_SIZE = 500_000  # nominal size equivalent for 1% move
+IMPACT_FACTOR = 0.015
 
-
-# Used by API for filler when tape is quiet
-LIVE_NEWS_SNIPPETS: List[str] = random_live_headlines()
