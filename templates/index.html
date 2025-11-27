@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="hero">
+    <h1>Portfolio in Peril – Cardiff Edition</h1>
+    <p class="lede">A Morgan Stanley style multi-team trading simulation. Survive the crash, ride the rebound, and finish with the highest NAV.</p>
+</section>
+
+<section class="card">
+    <h2>Join the game</h2>
+    <form method="post" class="stacked-form">
+        <label for="team_name">Enter your team name</label>
+        <input type="text" id="team_name" name="team_name" placeholder="e.g. Cardiff Quants" required>
+        <button type="submit">Join</button>
+    </form>
+    <p class="hint">One entry per team. After registering, you will be redirected to the Play screen.</p>
+</section>
+{% endblock %}
