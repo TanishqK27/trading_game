@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+    <div class="card-header">Leaderboard</div>
+    {% if not teams %}
+    <p>No leaderboard visible. Admins see the full board; players see their own line once trading.</p>
+    {% else %}
+    <table class="market">
+        <thead><tr><th>Rank</th><th>Team</th><th>NAV</th></tr></thead>
+        <tbody>
+            {% for row in teams %}
+            <tr><td>{{ loop.index }}</td><td>{{ row.team }}</td><td>{{ row.nav|round(0) }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</section>
+{% endblock %}

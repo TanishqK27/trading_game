@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block content %}
+{% if not authorized %}
+<section class="card narrow">
+    <h2>Admin sign-in</h2>
+    <form method="get">
+        <input type="password" name="password" placeholder="Password">
+        <button type="submit">Enter</button>
+    </form>
+</section>
+{% else %}
+<section class="grid">
+    <div class="card">
+        <div class="card-header">Controls</div>
+        <form method="post" class="btn-row">
+            <button name="action" value="pause" type="submit">Pause tape</button>
+            <button name="action" value="resume" type="submit" class="accent">Resume</button>
+            <button name="action" value="reset" type="submit" class="danger">Reset</button>
+        </form>
+        <div id="sessionStatus"></div>
+    </div>
+    <div class="card span2">
+        <div class="card-header">Order Books</div>
+        <div id="books"></div>
+    </div>
+    <div class="card">
+        <div class="card-header">Leaderboard</div>
+        <div id="leaders"></div>
+    </div>
+</section>
+<script>
+const books = document.getElementById('books');
+const leaders = document.getElementById('leaders');
+const statusBox = document.getElementById('sessionStatus');
+
+function renderBooks(data){
+    books.innerHTML = Object.entries(data.orderbooks||{}).map(([code,book])=>{
+        const bids = book.bids.map(o=>`${o.limit_price?.toFixed(2)} x ${o.remaining.toFixed(0)} (${o.team})`).slice(0,5).join('<br>');
+        const asks = book.asks.map(o=>`${o.limit_price?.toFixed(2)} x ${o.remaining.toFixed(0)} (${o.team})`).slice(0,5).join('<br>');
+        return `<div class="book"><div>${code}</div><div class="bid">${bids||'-'}</div><div class="ask">${asks||'-'}</div></div>`;
+    }).join('');
+}
+
+function renderLeaders(list){
+    leaders.innerHTML = list.map((t,i)=>`<div>#${i+1} ${t.team}: ${t.nav.toFixed(0)} (cash ${t.cash.toFixed(0)})</div>`).join('');
+}
+
+async function poll(){
+    const res = await fetch('{{ url_for('api_state') }}');
+    const data = await res.json();
+    renderBooks(data);
+    renderLeaders(data.leaderboard || []);
+    statusBox.innerText = data.active ? `Live | ${Math.round(data.remaining/60)} min left` : 'Stopped';
+    setTimeout(poll, 2000);
+}
+
+poll();
+</script>
+{% endif %}
+{% endblock %}

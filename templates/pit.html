@@ -1,0 +1,111 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="grid">
+    <div class="card span2">
+        <div class="card-header">Live Board</div>
+        <table class="market">
+            <thead><tr><th>Instrument</th><th>Bid</th><th>Last</th><th>Ask</th></tr></thead>
+            <tbody id="board"></tbody>
+        </table>
+        <div class="ticker" id="news"></div>
+    </div>
+    <div class="card">
+        <div class="card-header">Shout an order</div>
+        <form method="post" class="order-form">
+            <label>Instrument</label>
+            <select name="instrument">
+                {% for inst in instruments %}
+                <option value="{{ inst.code }}">{{ inst.code }} - {{ inst.name }}</option>
+                {% endfor %}
+            </select>
+            <label>Side</label>
+            <div class="btn-row">
+                <label><input type="radio" name="side" value="buy" checked> Buy</label>
+                <label><input type="radio" name="side" value="sell"> Sell</label>
+            </div>
+            <label>Quantity</label>
+            <input type="number" name="qty" step="100" min="0" placeholder="50000">
+            <label>Limit price (blank = market)</label>
+            <input type="number" name="price" step="0.01" min="0" placeholder="mkt">
+            <button type="submit" class="accent">Shout to pit</button>
+        </form>
+    </div>
+    <div class="card">
+        <div class="card-header">Your P&amp;L</div>
+        <canvas id="navChart" height="160"></canvas>
+        <div id="positions"></div>
+    </div>
+    <div class="card span2">
+        <div class="card-header">Tape</div>
+        <div id="tape" class="tape"></div>
+    </div>
+</section>
+<script>
+const board = document.getElementById('board');
+const tape = document.getElementById('tape');
+const news = document.getElementById('news');
+const positions = document.getElementById('positions');
+const navCanvas = document.getElementById('navChart');
+const navCtx = navCanvas.getContext('2d');
+let navHistory = [];
+let timeHistory = [];
+
+function drawNav(){
+    navCtx.clearRect(0,0,navCanvas.width,navCanvas.height);
+    if(navHistory.length < 2){return;}
+    const min = Math.min(...navHistory);
+    const max = Math.max(...navHistory);
+    const range = (max - min) || 1;
+    const pad = 10;
+    const w = navCanvas.width - pad*2;
+    const h = navCanvas.height - pad*2;
+    navCtx.strokeStyle = '#f5a623';
+    navCtx.beginPath();
+    navHistory.forEach((v,i)=>{
+        const x = pad + (i/(navHistory.length-1))*w;
+        const y = pad + (1-((v - min)/range))*h;
+        if(i===0) navCtx.moveTo(x,y); else navCtx.lineTo(x,y);
+    });
+    navCtx.stroke();
+    navCtx.fillStyle = '#ccc';
+    navCtx.fillText(`NAV: ${navHistory[navHistory.length-1].toFixed(0)}`, pad, pad+10);
+}
+
+function renderBoard(data){
+    board.innerHTML = '';
+    Object.entries(data.instruments).forEach(([code, inst])=>{
+        const row = document.createElement('tr');
+        row.innerHTML = `<td>${code}</td><td class="bid">${inst.bid?.toFixed(2) ?? '-'}</td><td>${inst.last_price.toFixed(2)}</td><td class="ask">${inst.ask?.toFixed(2) ?? '-'}</td>`;
+        board.appendChild(row);
+    });
+}
+
+function renderTape(trades){
+    tape.innerHTML = trades.map(t=>`<div>${new Date(t.timestamp*1000).toLocaleTimeString()} | ${t.instrument} ${t.qty.toFixed(0)} @ ${t.price.toFixed(2)}</div>`).join('');
+}
+
+function renderNews(items){
+    news.innerHTML = items.map(n=>`<span>${new Date((n.t||0)*1000).toLocaleTimeString()} ${n.headline}</span>`).join('');
+}
+
+function renderPositions(team){
+    if(!team){positions.innerHTML = '<p>Waiting for your fills...</p>';return;}
+    const posLines = Object.entries(team.positions||{}).map(([code,qty])=>`<div>${code}: ${qty.toFixed(0)}</div>`).join('');
+    positions.innerHTML = `<div>Cash: ${team.cash.toFixed(0)}</div>${posLines}`;
+    navHistory = team.nav_history || [];
+    drawNav();
+}
+
+async function poll(){
+    const res = await fetch('{{ url_for('api_state') }}');
+    const data = await res.json();
+    renderBoard(data);
+    renderTape(data.recent_trades || []);
+    renderNews(data.news || []);
+    renderPositions(data.team);
+    setTimeout(poll, 2000);
+}
+
+poll();
+</script>
+{% endblock %}

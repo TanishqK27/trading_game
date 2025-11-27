@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="hero">
+    <h1>Open Outcry Trading Pit</h1>
+    <p>Grab a badge, join the pit, and shout your orders. Prices move from news, flow, and large fills.</p>
+    <form method="post" class="card">
+        <label>Team name</label>
+        <input type="text" name="team_name" placeholder="Team Phoenix" required>
+        <button type="submit">Print badge</button>
+    </form>
+</section>
+{% endblock %}

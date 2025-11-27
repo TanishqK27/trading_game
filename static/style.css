@@ -1,0 +1,53 @@
+:root {
+    --bg: #0b0d10;
+    --panel: #161a1f;
+    --accent: #f5a623;
+    --text: #e5e5e5;
+    --muted: #8b8f98;
+    --danger: #e25d6a;
+}
+
+* { box-sizing: border-box; }
+body { margin:0; font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
+a { color: var(--accent); text-decoration: none; }
+
+.topbar { display:flex; justify-content: space-between; align-items:center; padding:12px 18px; background:#000; border-bottom:2px solid var(--accent); position:sticky; top:0; z-index:10; }
+.topbar .brand { font-weight:bold; letter-spacing:1px; }
+.topbar .links a { margin-left:14px; }
+
+main { padding:16px; }
+
+.grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px,1fr)); gap:14px; }
+.card { background: var(--panel); padding:14px; border:1px solid #222; border-radius:6px; box-shadow:0 2px 4px rgba(0,0,0,0.3); }
+.card-header { font-weight:bold; margin-bottom:10px; color: var(--accent); }
+.span2 { grid-column: span 2; }
+.narrow { max-width:360px; margin:0 auto; }
+
+.hero h1 { margin-top:0; }
+.hero .card { margin-top:12px; }
+
+input, select, button { width:100%; padding:10px; margin:6px 0; background:#111; color:var(--text); border:1px solid #333; border-radius:4px; }
+button { background:#222; cursor:pointer; }
+button.accent { background: var(--accent); color:#000; font-weight:bold; }
+button.danger { background: var(--danger); color:#000; }
+.btn-row { display:flex; gap:8px; flex-wrap:wrap; }
+.btn-row button { flex:1; }
+
+.market { width:100%; border-collapse: collapse; }
+.market th, .market td { padding:8px; border-bottom:1px solid #222; text-align:left; }
+.market th { color: var(--muted); font-weight: normal; }
+.bid { color:#7ed957; }
+.ask { color:#e25d6a; }
+
+.flash-area { margin:10px 0; }
+.flash { padding:8px 10px; border-radius:4px; margin-bottom:6px; }
+.flash.error { background:#3b1d1f; color:#f28c8c; }
+.flash.success { background:#1e2e1f; color:#9ad77a; }
+.flash.info { background:#1d2734; color:#8ab6f5; }
+
+.ticker { display:flex; gap:10px; flex-wrap:wrap; font-size:0.9rem; color:var(--muted); margin-top:8px; }
+.tape { max-height:220px; overflow-y:auto; font-family:monospace; background:#0e1117; padding:8px; border:1px solid #222; }
+.book { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:6px; padding:8px; border-bottom:1px solid #222; }
+
+.order-form label { font-size:0.85rem; color:var(--muted); }
+#navChart { width:100%; background:#0e1117; border:1px solid #222; }
