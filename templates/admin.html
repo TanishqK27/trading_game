@@ -1,0 +1,173 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card terminal-panel">
+    <div class="panel-top">
+        <div>
+            <p class="eyebrow">HOST</p>
+            <h2>Control & Wallboard</h2>
+            <p class="lede">Project this screen: blended market charts, live news, and the trade queue. Tape auto-ticks every 3 seconds for 40 minutes.</p>
+        </div>
+        {% if authorized %}
+        <div class="status-block">
+            <div class="status-line">Session left <span id="session-timer">{{ game_state.total_seconds_left }}s</span></div>
+            <div class="status-line">Teams connected <span>{{ game_state.teams|length }}</span></div>
+            <div class="status-line">Pending trades <span>{{ game_state.trade_requests|selectattr('status', 'equalto', 'pending')|list|length }}</span></div>
+            <form method="post" style="margin-top:8px;">
+                <button type="submit" name="action" value="reset">Reset simulation</button>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+    {% if not authorized %}
+        <form method="get" class="stacked-form" style="max-width:360px;">
+            <label>Password
+                <input type="password" name="password" placeholder="Admin password">
+            </label>
+            <button type="submit">Enter</button>
+        </form>
+    {% endif %}
+</section>
+
+{% if authorized %}
+<section class="terminal-grid">
+    <div class="card terminal-card">
+        <div class="card-header tight">
+            <h3>Trade queue</h3>
+            <span class="pill">Yells</span>
+        </div>
+        <div class="queue">
+            {% for trade in game_state.trade_requests|selectattr('status', 'equalto', 'pending')|list %}
+                <div class="queue-row">
+                    <div class="left">{{ trade.team }} · {{ trade.side|upper }} {{ trade.asset }} @ {{ trade.price }} <span class="time">{{ trade.ts }}</span></div>
+                    <div class="right">
+                        <form method="post" style="display:inline;">
+                            <input type="hidden" name="trade_id" value="{{ trade.id }}">
+                            <button class="buy" name="action" value="accept_trade">Accept</button>
+                        </form>
+                        <form method="post" style="display:inline;">
+                            <input type="hidden" name="trade_id" value="{{ trade.id }}">
+                            <button class="sell" name="action" value="reject_trade">Reject</button>
+                        </form>
+                    </div>
+                </div>
+            {% else %}
+                <p class="hint">No pending trades.</p>
+            {% endfor %}
+        </div>
+        <h4>Recent tape</h4>
+        <div class="news-scroller" style="max-height:180px;">
+            {% for trade in game_state.trade_requests[-30:] %}
+                <div class="news-line"><span class="time">{{ trade.ts }}</span> {{ trade.team }} {{ trade.side|upper }} {{ trade.asset }} @ {{ trade.price }} — {{ trade.status|upper }}</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="card terminal-card">
+        <div class="card-header tight">
+            <h3>News wall</h3>
+            <span class="pill">Projector friendly</span>
+        </div>
+        <div class="news-scroller" id="live-news">
+            {% for item in game_state.news_feed[-40:] %}
+                <div class="news-line"><span class="time">{{ item.time }}</span> {{ item.message }}</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="card terminal-card">
+        <div class="card-header tight">
+            <h3>Market panel</h3>
+            <span class="pill">Charts</span>
+        </div>
+        <div class="chart-grid">
+            <div class="chart-box">
+                <canvas id="marketChart" height="220"></canvas>
+                <p class="hint">Market index</p>
+            </div>
+            <div class="chart-box">
+                <canvas id="navChart" height="220"></canvas>
+                <p class="hint">Top NAV</p>
+            </div>
+        </div>
+        <div class="asset-chart-grid" id="assetGrid"></div>
+    </div>
+</section>
+
+<script>
+const sessionTimerEl = document.getElementById('session-timer');
+const marketCanvas = document.getElementById('marketChart');
+const navCanvas = document.getElementById('navChart');
+const assetGrid = document.getElementById('assetGrid');
+const assetsMeta = {{ assets|tojson }};
+
+function drawLine(canvas, data, color, label) {
+    if (!canvas || !data || data.length === 0) return;
+    const ctx = canvas.getContext('2d');
+    const padding = 12;
+    canvas.width = canvas.clientWidth;
+    const width = canvas.width;
+    const height = canvas.height;
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#0b0f1a';
+    ctx.fillRect(0, 0, width, height);
+
+    const maxVal = Math.max(...data);
+    const minVal = Math.min(...data);
+    const span = Math.max(maxVal - minVal, 0.0001);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    data.forEach((v, idx) => {
+        const x = padding + (idx / Math.max(data.length - 1, 1)) * (width - padding * 2);
+        const y = height - padding - ((v - minVal) / span) * (height - padding * 2);
+        if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.fillStyle = '#f97316';
+    ctx.font = '12px Menlo, monospace';
+    ctx.fillText(label, padding, padding + 4);
+    ctx.fillText(`Min ${minVal.toFixed(2)} · Max ${maxVal.toFixed(2)}`, padding, height - 6);
+}
+
+function renderAssetCharts(assetHistories) {
+    if (!assetGrid || !assetHistories) return;
+    assetGrid.innerHTML = '';
+    assetsMeta.forEach(code => {
+        const box = document.createElement('div');
+        box.className = 'chart-box mini';
+        const canvas = document.createElement('canvas');
+        canvas.width = 240; canvas.height = 120; canvas.dataset.asset = code;
+        box.appendChild(canvas);
+        const label = document.createElement('p');
+        label.className = 'hint';
+        label.textContent = code;
+        box.appendChild(label);
+        assetGrid.appendChild(box);
+        const series = assetHistories[code];
+        if (series) drawLine(canvas, series, '#f59e0b', code);
+    });
+}
+
+async function refreshState() {
+    try {
+        const res = await fetch('{{ url_for('api_state') }}');
+        const data = await res.json();
+        if (data.total_seconds_left !== undefined && sessionTimerEl) {
+            const minutes = Math.floor(data.total_seconds_left / 60);
+            const seconds = data.total_seconds_left % 60;
+            sessionTimerEl.textContent = `${minutes}m ${seconds.toString().padStart(2,'0')}s`;
+        }
+        if (data.market_index_history) drawLine(marketCanvas, data.market_index_history, '#38bdf8', 'Market');
+        if (data.teams && data.teams.length > 0) {
+            const top = [...data.teams].sort((a,b) => b.nav - a.nav)[0];
+            if (top && top.nav_history) drawLine(navCanvas, top.nav_history, '#22c55e', top.name);
+        }
+        if (data.asset_index_histories) renderAssetCharts(data.asset_index_histories);
+    } catch (err) { console.error('admin refresh failed', err); }
+}
+
+refreshState();
+setInterval(refreshState, 3000);
+</script>
+{% endif %}
+{% endblock %}
