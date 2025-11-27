@@ -1,0 +1,223 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+    <h2>Admin control</h2>
+    {% if not authorized %}
+        <form method="get" class="stacked-form">
+            <label for="password">Admin password</label>
+            <input type="password" name="password" id="password" required>
+            <button type="submit">Login</button>
+        </form>
+    {% else %}
+        <div class="panel-top">
+            <div>
+                <p class="lede">Clock remaining in round: <strong id="round-remaining">{{ game_state.seconds_left_in_round }}</strong>s · Total teams: {{ game_state.teams|length }}</p>
+                <p class="lede">Session remaining: <strong id="session-remaining">{{ game_state.total_seconds_left }}</strong>s · Continuous 40-minute tape</p>
+                <p>Current round: {{ game_state.current_round if not game_state.is_finished else 'Finished' }}</p>
+                <p>Submissions this round: <strong id="round-submissions">{{ submissions }}</strong></p>
+            </div>
+            <div class="status-block">
+                <div class="status-line">Market index <span id="market-last">{{ '%.2f'|format(game_state.market_index_history[-1]) }}</span></div>
+                <div class="status-line">News items <span id="news-count">{{ game_state.news_feed|length }}</span></div>
+                <div class="status-line">Round duration <span>{{ game_state.round_duration_seconds }}s</span></div>
+            </div>
+        </div>
+        <div class="inline-form">
+            {% if not game_state.is_finished %}
+                <button type="submit" form="admin-actions" name="action" value="advance">Advance to next round &amp; apply returns</button>
+            {% else %}
+                <p>The game has completed all rounds.</p>
+            {% endif %}
+            <button type="submit" form="admin-actions" name="action" value="reset" class="danger">Reset game</button>
+            <a href="{{ url_for('leaderboard') }}" class="pill">Leaderboard</a>
+        </div>
+
+        <form id="admin-actions" method="post"></form>
+
+        <section class="terminal-grid">
+            <div class="card terminal-card">
+                <div class="card-header tight">
+                    <h3>Host wallboard</h3>
+                    <span class="pill">Project to whiteboard</span>
+                </div>
+                <div class="chart-grid">
+                    <div class="chart-box">
+                        <canvas id="hostMarket" height="200"></canvas>
+                        <p class="hint">Flow-adjusted market</p>
+                    </div>
+                    <div class="chart-box">
+                        <canvas id="hostNewsChart" height="200"></canvas>
+                        <p class="hint">Team NAV leaderboard spark</p>
+                    </div>
+                </div>
+                <div class="asset-chart-grid" id="hostAssetGrid"></div>
+            </div>
+
+            <div class="card terminal-card">
+                <div class="card-header tight">
+                    <h3>Trades yelled</h3>
+                    <span class="pill">Voice-confirmed</span>
+                </div>
+                <div id="pending-trades" class="stacked"></div>
+                <h4>Trade tape</h4>
+                <div id="trade-tape" class="news-scroller"></div>
+            </div>
+
+            <div class="card terminal-card">
+                <div class="card-header tight">
+                    <h3>Live news</h3>
+                    <span class="pill">Crashwire</span>
+                </div>
+                <div class="news-scroller" id="host-news"></div>
+            </div>
+        </section>
+    {% endif %}
+</section>
+<script>
+{% if authorized %}
+const hostMarket = document.getElementById('hostMarket');
+const hostNewsChart = document.getElementById('hostNewsChart');
+const hostAssetGrid = document.getElementById('hostAssetGrid');
+const hostNewsBox = document.getElementById('host-news');
+const pendingBox = document.getElementById('pending-trades');
+const tradeTapeBox = document.getElementById('trade-tape');
+const assetsMeta = {{ assets|tojson }};
+const assetNames = {{ asset_names|tojson }};
+
+function drawLine(canvas, data, color, label) {
+    if (!canvas || !data || data.length === 0) return;
+    const ctx = canvas.getContext('2d');
+    const padding = 12;
+    const width = canvas.width;
+    const height = canvas.height;
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, width, height);
+
+    const maxVal = Math.max(...data);
+    const minVal = Math.min(...data);
+    const span = Math.max(maxVal - minVal, 0.0001);
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    data.forEach((v, idx) => {
+        const x = padding + (idx / Math.max(data.length - 1, 1)) * (width - padding * 2);
+        const y = height - padding - ((v - minVal) / span) * (height - padding * 2);
+        if (idx === 0) {
+            ctx.moveTo(x, y);
+        } else {
+            ctx.lineTo(x, y);
+        }
+    });
+    ctx.stroke();
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '12px Menlo, monospace';
+    ctx.fillText(label, padding, padding + 4);
+    ctx.fillText(`Min ${minVal.toFixed(2)} · Max ${maxVal.toFixed(2)}`, padding, height - 6);
+}
+
+function renderAssets(assetHistories) {
+    if (!hostAssetGrid || !assetHistories) return;
+    hostAssetGrid.innerHTML = '';
+    assetsMeta.forEach(code => {
+        const box = document.createElement('div');
+        box.className = 'chart-box mini';
+        const canvas = document.createElement('canvas');
+        canvas.width = 240;
+        canvas.height = 120;
+        box.appendChild(canvas);
+        const label = document.createElement('p');
+        label.className = 'hint';
+        label.textContent = `${code} · ${assetNames[code]}`;
+        box.appendChild(label);
+        hostAssetGrid.appendChild(box);
+        if (assetHistories[code]) {
+            drawLine(canvas, assetHistories[code], '#f97316', code);
+        }
+    });
+}
+
+function renderNewsFeed(news) {
+    if (!hostNewsBox) return;
+    hostNewsBox.innerHTML = '';
+    news.slice(-30).forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'news-line';
+        row.innerHTML = `<span class="time">${item.time}</span> ${item.message}`;
+        hostNewsBox.appendChild(row);
+    });
+    const countEl = document.getElementById('news-count');
+    if (countEl) countEl.textContent = news.length;
+}
+
+function renderTrades(pending, tape) {
+    if (pendingBox) {
+        pendingBox.innerHTML = '';
+        if (!pending.length) {
+            pendingBox.innerHTML = '<p class="hint">No pending shouts.</p>';
+        }
+        pending.forEach(trade => {
+            const form = document.createElement('form');
+            form.method = 'post';
+            form.className = 'trade-line';
+            form.innerHTML = `
+                <div>
+                    <strong>${trade.team}</strong> ${trade.side.toUpperCase()} ${trade.asset} @ ${trade.price}
+                    <span class="hint">${trade.note || ''}</span>
+                </div>
+                <div class="trade-actions">
+                    <input type="hidden" name="trade_id" value="${trade.id}">
+                    <button name="action" value="accept_trade">Accept</button>
+                    <button name="action" value="reject_trade" class="danger">Reject</button>
+                </div>`;
+            pendingBox.appendChild(form);
+        });
+    }
+    if (tradeTapeBox) {
+        tradeTapeBox.innerHTML = '';
+        tape.slice(-25).reverse().forEach(item => {
+            const line = document.createElement('div');
+            line.className = 'news-line';
+            line.innerHTML = `<span class="time">${item.ts}</span> ${item.team} ${item.side.toUpperCase()} ${item.asset} @ ${item.price} — ${item.status}`;
+            tradeTapeBox.appendChild(line);
+        });
+    }
+}
+
+async function refreshHost() {
+    try {
+        const res = await fetch('{{ url_for('api_state') }}');
+        const data = await res.json();
+        document.getElementById('round-remaining').textContent = data.seconds_left;
+        if (data.total_seconds_left !== undefined) {
+            document.getElementById('session-remaining').textContent = data.total_seconds_left;
+        }
+        document.getElementById('round-submissions').textContent = data.submissions;
+        if (data.market_index_history) {
+            drawLine(hostMarket, data.market_index_history, '#22c55e', 'Crowd market');
+            document.getElementById('market-last').textContent = data.market_index_history[data.market_index_history.length-1].toFixed(2);
+        }
+        if (data.asset_index_histories) {
+            renderAssets(data.asset_index_histories);
+            if (data.asset_index_histories.US_EQ) {
+                drawLine(hostNewsChart, data.asset_index_histories.US_EQ, '#38bdf8', 'US_EQ path');
+            }
+        }
+        if (data.news_feed) {
+            renderNewsFeed(data.news_feed);
+        }
+        if (data.pending_trades || data.trade_tape) {
+            renderTrades(data.pending_trades || [], data.trade_tape || []);
+        }
+    } catch (err) {
+        console.error('host refresh failed', err);
+    }
+}
+
+refreshHost();
+setInterval(refreshHost, 4000);
+{% endif %}
+</script>
+{% endblock %}
