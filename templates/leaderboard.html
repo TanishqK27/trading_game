@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+    <h2>Leaderboard</h2>
+    {% if winner %}
+        <div class="winner">
+            <strong>Game over – Winner: {{ winner.name }}</strong>
+            <span>Final NAV: £{{ '%.2f'|format(winner.current_nav) }}m</span>
+        </div>
+    {% elif game_state.is_finished %}
+        <p>Game over. Final standings below.</p>
+    {% else %}
+        <p>Current standings. Final ranking locks after round {{ game_state.num_rounds }}.</p>
+    {% endif %}
+
+    <p class="lede">Market index: {{ '%.2f'|format(game_state.market_index_history[-1]) }} · Round {{ game_state.current_round if not game_state.is_finished else 'Finished' }}</p>
+
+    <table class="leaderboard">
+        <tr>
+            <th>Rank</th>
+            <th>Team</th>
+            <th>Current NAV</th>
+            <th>Last return</th>
+            <th>Trail</th>
+        </tr>
+        {% for team in teams %}
+            {% set lr = team.last_return() %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ team.name }}</td>
+                <td>£{{ '%.2f'|format(team.current_nav) }}m</td>
+                <td>
+                    {% if lr is not none %}
+                        {{ (lr * 100) | round(2) }}%
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+                <td class="trail">
+                    {% for value in team.nav_history %}
+                        <span>{{ '%.1f'|format(value) }}</span>{% if not loop.last %} → {% endif %}
+                    {% endfor %}
+                </td>
+            </tr>
+        {% endfor %}
+    </table>
+</section>
+{% endblock %}

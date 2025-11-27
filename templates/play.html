@@ -1,0 +1,240 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card terminal-panel">
+    <div class="panel-top">
+        <div>
+            <p class="eyebrow">LIVE — {{ team.name }}</p>
+            <h2>Round {{ current_round_index }} of {{ total_rounds }}{% if current_round %} · {{ current_round.name }}{% endif %}</h2>
+            <p class="lede">React to the crash and recovery in real time. Allocations normalise to 100%; big flows nudge prices.</p>
+        </div>
+        <div class="status-block">
+            <div class="status-line">Round clock <span id="round-timer">{{ seconds_left }}s</span></div>
+            <div class="status-line">NAV <span class="nav-large">£{{ '%.2f'|format(team.current_nav) }}m</span></div>
+            {% if last_return is not none %}
+                <div class="status-line">Last return <span>{{ (last_return * 100) | round(2) }}%</span></div>
+            {% endif %}
+            {% if finished %}
+                <div class="pill finished">Game finished</div>
+            {% elif submitted %}
+                <div class="pill info">Submitted</div>
+            {% endif %}
+        </div>
+    </div>
+    {% if finished %}
+        <p class="lede">The game has concluded. Head to the leaderboard for final NAVs.</p>
+    {% elif current_round %}
+        <div class="news-box" id="round-news">{{ current_round.news | replace('\n', '<br>') | safe }}</div>
+    {% endif %}
+</section>
+
+<section class="terminal-grid">
+    <div class="card terminal-card">
+        <div class="card-header tight">
+            <h3>News Flow</h3>
+            <span class="pill">Crashwire</span>
+        </div>
+        <div class="news-scroller" id="live-news">
+            <div class="news-line">Waiting for tape...</div>
+        </div>
+    </div>
+
+    <div class="card terminal-card">
+        <div class="card-header tight">
+            <h3>Charts</h3>
+            <span class="pill">Black Monday Path</span>
+        </div>
+        <div class="chart-grid">
+            <div class="chart-box">
+                <canvas id="navChart" height="200"></canvas>
+                <p class="hint">Team NAV path</p>
+            </div>
+            <div class="chart-box">
+                <canvas id="marketChart" height="200"></canvas>
+                <p class="hint">Market index reacts to crowd flows</p>
+            </div>
+        </div>
+        <div class="asset-chart-grid" id="assetGrid">
+            <!-- populated via JS -->
+        </div>
+        <div class="history-inline">
+            {% for value in nav_history %}
+                <span class="spark">{{ '%.1f'|format(value) }}</span>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="card terminal-card">
+        <div class="card-header tight">
+            <h3>Shout a trade</h3>
+            <span class="pill">Host confirmation</span>
+        </div>
+        <p class="lede">Press the buzzer, shout your order to the host, and wait for a fill.</p>
+        <form method="post" action="{{ url_for('trade_request') }}" class="grid-form">
+            <label>Side
+                <select name="side">
+                    <option value="long">Long / Buy</option>
+                    <option value="short">Short / Sell</option>
+                </select>
+            </label>
+            <label>Asset
+                <select name="asset">
+                    {% for asset in assets %}
+                        <option value="{{ asset }}">{{ asset }} – {{ asset_names[asset] }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Price or level
+                <input type="text" name="price" placeholder="mkt or 4200 / 99-16">
+            </label>
+            <label>Shout / note
+                <input type="text" name="note" placeholder="Size, urgency, rationale">
+            </label>
+            <button type="submit" class="full-width">Buzz host</button>
+        </form>
+        <p class="hint">Host accepts/rejects on their terminal; fills nudge market impact in the next tick.</p>
+    </div>
+
+    <div class="card terminal-card">
+        <h3>Submit allocations</h3>
+        {% if finished %}
+            <p>The simulation is complete. Allocations are closed.</p>
+        {% elif submitted %}
+            <p>You&apos;ve submitted for this round. Waiting for the admin to advance.</p>
+        {% else %}
+            <form method="post" class="stacked-form">
+                <p class="hint">Enter non-negative weights. We normalise to 100%; blanks are zero.</p>
+                {% for asset in assets %}
+                    <label for="{{ asset }}">{{ asset }} – {{ asset_names[asset] }}</label>
+                    <input type="number" step="0.01" min="0" name="{{ asset }}" id="{{ asset }}" placeholder="0">
+                {% endfor %}
+                <button type="submit">Submit allocations</button>
+            </form>
+        {% endif %}
+    </div>
+</section>
+
+<script>
+const navCanvas = document.getElementById('navChart');
+const marketCanvas = document.getElementById('marketChart');
+const newsBox = document.getElementById('live-news');
+const timerEl = document.getElementById('round-timer');
+let lastNewsCount = 0;
+const audioCtx = window.AudioContext ? new AudioContext() : null;
+const assetGrid = document.getElementById('assetGrid');
+const assetsMeta = {{ assets_meta|tojson }};
+
+function blip() {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 880;
+    gain.gain.value = 0.08;
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.12);
+}
+
+function drawLine(canvas, data, color, label) {
+    if (!canvas || !data || data.length === 0) return;
+    const ctx = canvas.getContext('2d');
+    const padding = 12;
+    const width = canvas.width;
+    const height = canvas.height;
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, width, height);
+
+    const maxVal = Math.max(...data);
+    const minVal = Math.min(...data);
+    const span = Math.max(maxVal - minVal, 0.0001);
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    data.forEach((v, idx) => {
+        const x = padding + (idx / Math.max(data.length - 1, 1)) * (width - padding * 2);
+        const y = height - padding - ((v - minVal) / span) * (height - padding * 2);
+        if (idx === 0) {
+            ctx.moveTo(x, y);
+        } else {
+            ctx.lineTo(x, y);
+        }
+    });
+    ctx.stroke();
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '12px Menlo, monospace';
+    ctx.fillText(label, padding, padding + 4);
+    ctx.fillText(`Min ${minVal.toFixed(2)} · Max ${maxVal.toFixed(2)}`, padding, height - 6);
+}
+
+function renderAssetCharts(assetHistories) {
+    if (!assetGrid || !assetHistories) return;
+    assetGrid.innerHTML = '';
+    assetsMeta.forEach(meta => {
+        const box = document.createElement('div');
+        box.className = 'chart-box mini';
+        const canvas = document.createElement('canvas');
+        canvas.width = 240;
+        canvas.height = 120;
+        canvas.dataset.asset = meta.code;
+        box.appendChild(canvas);
+        const label = document.createElement('p');
+        label.className = 'hint';
+        label.textContent = `${meta.code} · ${meta.name}`;
+        box.appendChild(label);
+        assetGrid.appendChild(box);
+        const series = assetHistories[meta.code];
+        if (series) {
+            drawLine(canvas, series, '#fbbf24', meta.code);
+        }
+    });
+}
+
+function renderNews(news, randomNews) {
+    if (!newsBox) return;
+    newsBox.innerHTML = '';
+    const combined = news.concat(randomNews || []);
+    combined.slice(-15).forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'news-line';
+        if (typeof item === 'string') {
+            row.innerHTML = `<span class="time">T+</span> ${item}`;
+        } else {
+            row.innerHTML = `<span class="time">${item.time}</span> ${item.message}`;
+        }
+        newsBox.appendChild(row);
+    });
+    if (combined.length > lastNewsCount) {
+        blip();
+        lastNewsCount = combined.length;
+    }
+}
+
+async function refreshState() {
+    try {
+        const res = await fetch('{{ url_for('api_state') }}');
+        const data = await res.json();
+        if (data.seconds_left !== undefined && timerEl) {
+            timerEl.textContent = `${data.seconds_left}s`;
+        }
+        if (data.team && data.team.nav_history) {
+            drawLine(navCanvas, data.team.nav_history, '#22c55e', 'Team NAV');
+        }
+        if (data.market_index_history) {
+            drawLine(marketCanvas, data.market_index_history, '#38bdf8', 'Market Index');
+        }
+        if (data.asset_index_histories) {
+            renderAssetCharts(data.asset_index_histories);
+        }
+        renderNews(data.news_feed || [], data.random_news || []);
+    } catch (err) {
+        console.error('state refresh failed', err);
+    }
+}
+
+refreshState();
+setInterval(refreshState, 4500);
+</script>
+{% endblock %}
