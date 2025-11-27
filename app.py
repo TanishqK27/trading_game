@@ -4,9 +4,9 @@ Portfolio in Peril – Cardiff Edition
 How to run:
 1. pip install flask
 2. export ADMIN_PASSWORD=cardiffquant (or set your own) and optionally export FLASK_SECRET.
-3. python app.py
-4. Host laptop opens http://localhost:5000/admin and http://localhost:5000/.
-5. Other players on the same network open http://<host-ip>:5000.
+3. python app.py (defaults to port 5000; set FLASK_PORT to override)
+4. Host laptop opens http://localhost:<port>/admin and http://localhost:<port>/.
+5. Other players on the same network open http://<host-ip>:<port>.
 """
 from __future__ import annotations
 
@@ -314,4 +314,22 @@ def api_state():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    host = os.getenv("FLASK_HOST", "0.0.0.0")
+    port_env = os.getenv("FLASK_PORT") or os.getenv("PORT") or "5000"
+    try:
+        port = int(port_env)
+    except ValueError:
+        port = 5000
+
+    try:
+        app.run(host=host, port=port, debug=False)
+    except OSError as exc:
+        # Gracefully handle "address already in use" by trying the next port.
+        if getattr(exc, "errno", None) == 98:  # 98 = EADDRINUSE on Linux/macOS
+            alt_port = port + 1
+            print(
+                f"Port {port} is busy. Falling back to {alt_port}. Set FLASK_PORT to choose a port explicitly."
+            )
+            app.run(host=host, port=alt_port, debug=False)
+        else:
+            raise

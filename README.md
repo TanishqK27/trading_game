@@ -18,9 +18,9 @@ A lightweight, continuous 40-minute trading simulation built with Flask. One lap
 ## How to run
 1. Install dependencies: `pip install flask` (or `pip install -r requirements.txt` if you add one).
 2. Optional: set an admin password via environment variable, e.g. `export ADMIN_PASSWORD=cardiffquant`.
-3. Start the server from the repo root: `python app.py` (binds to `0.0.0.0:5000`). The tape runs continuously for ~40 minutes; scenario beats auto-advance on that clock.
-4. On the host laptop, open `http://localhost:5000/admin` for controls and `http://localhost:5000/` for the player landing page. Keep `/admin` projected for the “wallboard” with news, charts, and trade tape.
-5. Other players on the same network join via `http://<host-ip>:5000`—no login beyond a team name. They cannot see other teams’ NAV or orders; only the host wallboard is multi-team.
+3. Start the server from the repo root: `python app.py` (binds to `0.0.0.0:5000` by default). Set `FLASK_PORT=7000` (or another free port) if 5000 is occupied; the app will auto-fall back to the next port if it detects the address is already in use. The tape runs continuously for ~40 minutes; scenario beats auto-advance on that clock.
+4. On the host laptop, open `http://localhost:<port>/admin` for controls and `http://localhost:<port>/` for the player landing page. Keep `/admin` projected for the “wallboard” with news, charts, and trade tape.
+5. Other players on the same network join via `http://<host-ip>:<port>`—no login beyond a team name. They cannot see other teams’ NAV or orders; only the host wallboard is multi-team.
 
 ## Gameplay guide
 - **Register:** Teams enter a unique name on the landing page; the session stores the team identity.
@@ -38,4 +38,4 @@ A lightweight, continuous 40-minute trading simulation built with Flask. One lap
 
 ## Troubleshooting
 - If you see “team name taken”, pick a unique name; sessions are cookie-based, so use separate browser profiles for multiple teams on one machine.
-- Ensure all players can reach the host’s IP on port 5000; firewalls may need to allow local network access.
+- Ensure all players can reach the host’s IP on the chosen port (default 5000); firewalls may need to allow local network access. If you see “address already in use,” either stop the conflicting process (macOS users: AirPlay Receiver sometimes uses 5000) or rerun with `FLASK_PORT=<free_port>`.
