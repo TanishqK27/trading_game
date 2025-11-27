@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+    <div class="card-header">
+        <h2>Round {{ current_round_index }} of {{ total_rounds }}</h2>
+        {% if finished %}
+            <span class="pill finished">Game finished</span>
+        {% endif %}
+    </div>
+    {% if finished %}
+        <p>The game has concluded. Check the leaderboard to see final rankings.</p>
+    {% elif current_round %}
+        <h3>{{ current_round.name }}</h3>
+        <div class="news-box">{{ current_round.news | replace('\n', '<br>') | safe }}</div>
+    {% endif %}
+</section>
+
+<section class="grid">
+    <div class="card">
+        <h3>{{ team.name }} – NAV</h3>
+        <p class="nav">£{{ '%.2f'|format(team.current_nav) }}m</p>
+        {% if last_return is not none %}
+            <p class="hint">Last round return: {{ (last_return * 100) | round(2) }}%</p>
+        {% endif %}
+        <h4>History</h4>
+        <table class="history">
+            <tr><th>Round</th><th>NAV</th></tr>
+            {% for value in nav_history %}
+                <tr>
+                    <td>{{ loop.index0 }}</td>
+                    <td>£{{ '%.2f'|format(value) }}m</td>
+                </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <div class="card">
+        <h3>Submit allocations</h3>
+        {% if finished %}
+            <p>The simulation is complete. Allocations are closed.</p>
+        {% elif submitted %}
+            <p>You&apos;ve submitted for this round. Waiting for the admin to advance.</p>
+        {% else %}
+            <form method="post" class="stacked-form">
+                <p class="hint">Enter non-negative weights; we will normalise them to 100% on submission.</p>
+                {% for asset in assets %}
+                    <label for="{{ asset }}">{{ asset }} – {{ asset_names[asset] }}</label>
+                    <input type="number" step="0.01" min="0" name="{{ asset }}" id="{{ asset }}" placeholder="0">
+                {% endfor %}
+                <button type="submit">Submit allocations</button>
+            </form>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}
