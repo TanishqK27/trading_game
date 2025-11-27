@@ -4,35 +4,22 @@
     <div class="panel-top">
         <div>
             <p class="eyebrow">LIVE — {{ team.name }}</p>
-            <h2>Stage {{ current_round_index }} of {{ total_rounds }}{% if current_round %} · {{ current_round.name }}{% endif %}</h2>
-            <p class="lede">Continuous 40-minute tape: react to the 1987-style cascade with a modern twist. Allocations normalise to 100%; your flows and shouts move the tape.</p>
+            <h2>Continuous tape · 40-minute sprint</h2>
+            <p class="lede">Black-and-orange Bloomberg vibe, no rounds — flows, news, and chart ticks every 3 seconds. Your moves are private; only the host sees full tape.</p>
         </div>
         <div class="status-block">
-            <div class="status-line">Stage clock <span id="round-timer">{{ seconds_left }}s</span></div>
-            <div class="status-line">Session <span id="session-timer">{{ total_seconds_left }}s</span></div>
+            <div class="status-line">Session clock <span id="session-timer">{{ total_seconds_left }}s</span></div>
             <div class="status-line">NAV <span class="nav-large">£{{ '%.2f'|format(team.current_nav) }}m</span></div>
-            {% if last_return is not none %}
-                <div class="status-line">Last return <span>{{ (last_return * 100) | round(2) }}%</span></div>
-            {% endif %}
-            {% if finished %}
-                <div class="pill finished">Game finished</div>
-            {% elif submitted %}
-                <div class="pill info">Submitted</div>
-            {% endif %}
         </div>
     </div>
-    {% if finished %}
-        <p class="lede">The game has concluded. Head to the leaderboard for final NAVs.</p>
-    {% elif current_round %}
-        <div class="news-box" id="round-news">{{ current_round.news | replace('\n', '<br>') | safe }}</div>
-    {% endif %}
+    <div class="news-box" id="round-news">Stay nimble — charts and news refresh automatically. Hit the red/green buttons to shout trades.</div>
 </section>
 
 <section class="terminal-grid">
     <div class="card terminal-card">
         <div class="card-header tight">
             <h3>News Flow</h3>
-            <span class="pill">Crashwire</span>
+            <span class="pill">Live tape</span>
         </div>
         <div class="news-scroller" id="live-news">
             <div class="news-line">Waiting for tape...</div>
@@ -41,17 +28,17 @@
 
     <div class="card terminal-card">
         <div class="card-header tight">
-            <h3>Charts</h3>
-            <span class="pill">Black Monday Path</span>
+            <h3>Portfolio & Market Charts</h3>
+            <span class="pill">Auto-refresh</span>
         </div>
         <div class="chart-grid">
             <div class="chart-box">
                 <canvas id="navChart" height="200"></canvas>
-                <p class="hint">Team NAV path</p>
+                <p class="hint">Your NAV path (sim day granularity)</p>
             </div>
             <div class="chart-box">
                 <canvas id="marketChart" height="200"></canvas>
-                <p class="hint">Market index reacts to crowd flows</p>
+                <p class="hint">Market index reacts to flows & macro shocks</p>
             </div>
         </div>
         <div class="asset-chart-grid" id="assetGrid">
@@ -69,12 +56,12 @@
             <h3>Shout a trade</h3>
             <span class="pill">Host confirmation</span>
         </div>
-        <p class="lede">Press the buzzer, shout your order to the host, and wait for a fill. Loud players can swing the tape.</p>
+        <p class="lede">Press buy (green) or sell (red), shout price/size to the host, and wait for a fill. Fills nudge the tape immediately.</p>
         <form method="post" action="{{ url_for('trade_request') }}" class="grid-form">
             <label>Side
                 <select name="side">
-                    <option value="long">Long / Buy</option>
-                    <option value="short">Short / Sell</option>
+                    <option value="long">Buy / Long</option>
+                    <option value="short">Sell / Short</option>
                 </select>
             </label>
             <label>Asset
@@ -90,61 +77,56 @@
             <label>Shout / note
                 <input type="text" name="note" placeholder="Size, urgency, rationale">
             </label>
-            <button type="submit" class="full-width">Buzz host</button>
+            <div class="dual-buttons">
+                <button type="submit" name="side" value="long" class="buy">BUY</button>
+                <button type="submit" name="side" value="short" class="sell">SELL</button>
+            </div>
         </form>
-        <p class="hint">Host accepts/rejects on their terminal; fills nudge market impact in the next tick.</p>
+        <p class="hint">Host accepts/rejects on their terminal; fills move price paths and portfolio marks.</p>
     </div>
 
     <div class="card terminal-card">
-        <h3>Submit allocations</h3>
-        {% if finished %}
-            <p>The simulation is complete. Allocations are closed.</p>
-        {% elif submitted %}
-            <p>You&apos;ve submitted for this round. Waiting for the admin to advance.</p>
-        {% else %}
-            <form method="post" class="stacked-form">
-                <p class="hint">Enter non-negative weights. We normalise to 100%; blanks are zero. Other teams cannot see your P&L or orders.</p>
-                {% for asset in assets %}
-                    <label for="{{ asset }}">{{ asset }} – {{ asset_names[asset] }}</label>
-                    <input type="number" step="0.01" min="0" name="{{ asset }}" id="{{ asset }}" placeholder="0">
-                {% endfor %}
-                <button type="submit">Submit allocations</button>
-            </form>
-        {% endif %}
+        <h3>Rebalance weights</h3>
+        <form method="post" class="stacked-form">
+            <p class="hint">Enter non-negative weights. We normalise to 100%; blanks are zero. Other teams cannot see your P&L or orders.</p>
+            {% for asset in assets %}
+                <label for="{{ asset }}">{{ asset }} – {{ asset_names[asset] }}</label>
+                <input type="number" step="0.01" min="0" name="{{ asset }}" id="{{ asset }}" placeholder="0" value="{{ team.allocation.get(asset, 0) }}">
+            {% endfor %}
+            <button type="submit">Update allocation</button>
+        </form>
     </div>
 </section>
+
+<audio id="tickSound" preload="auto">
+    <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQAAAAA=" type="audio/wav">
+</audio>
 
 <script>
 const navCanvas = document.getElementById('navChart');
 const marketCanvas = document.getElementById('marketChart');
 const newsBox = document.getElementById('live-news');
-const timerEl = document.getElementById('round-timer');
 const sessionTimerEl = document.getElementById('session-timer');
-let lastNewsCount = 0;
-const audioCtx = window.AudioContext ? new AudioContext() : null;
 const assetGrid = document.getElementById('assetGrid');
 const assetsMeta = {{ assets_meta|tojson }};
+const tickSound = document.getElementById('tickSound');
+let lastNewsCount = 0;
 
 function blip() {
-    if (!audioCtx) return;
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = 'square';
-    osc.frequency.value = 880;
-    gain.gain.value = 0.08;
-    osc.connect(gain).connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.12);
+    if (!tickSound) return;
+    tickSound.currentTime = 0;
+    tickSound.play().catch(() => {});
 }
 
 function drawLine(canvas, data, color, label) {
     if (!canvas || !data || data.length === 0) return;
     const ctx = canvas.getContext('2d');
     const padding = 12;
+    canvas.width = canvas.clientWidth;
     const width = canvas.width;
     const height = canvas.height;
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = '#0f172a';
+    ctx.fillStyle = '#0b0f1a';
     ctx.fillRect(0, 0, width, height);
 
     const maxVal = Math.max(...data);
@@ -165,7 +147,7 @@ function drawLine(canvas, data, color, label) {
     });
     ctx.stroke();
 
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = '#f97316';
     ctx.font = '12px Menlo, monospace';
     ctx.fillText(label, padding, padding + 4);
     ctx.fillText(`Min ${minVal.toFixed(2)} · Max ${maxVal.toFixed(2)}`, padding, height - 6);
@@ -189,7 +171,7 @@ function renderAssetCharts(assetHistories) {
         assetGrid.appendChild(box);
         const series = assetHistories[meta.code];
         if (series) {
-            drawLine(canvas, series, '#fbbf24', meta.code);
+            drawLine(canvas, series, '#f59e0b', meta.code);
         }
     });
 }
@@ -198,7 +180,7 @@ function renderNews(news, randomNews) {
     if (!newsBox) return;
     newsBox.innerHTML = '';
     const combined = news.concat(randomNews || []);
-    combined.slice(-15).forEach(item => {
+    combined.slice(-20).forEach(item => {
         const row = document.createElement('div');
         row.className = 'news-line';
         if (typeof item === 'string') {
@@ -218,9 +200,6 @@ async function refreshState() {
     try {
         const res = await fetch('{{ url_for('api_state') }}');
         const data = await res.json();
-        if (data.seconds_left !== undefined && timerEl) {
-            timerEl.textContent = `${data.seconds_left}s`;
-        }
         if (data.total_seconds_left !== undefined && sessionTimerEl) {
             const minutes = Math.floor(data.total_seconds_left / 60);
             const seconds = data.total_seconds_left % 60;
@@ -242,6 +221,6 @@ async function refreshState() {
 }
 
 refreshState();
-setInterval(refreshState, 4500);
+setInterval(refreshState, 3000);
 </script>
 {% endblock %}

@@ -1,41 +1,40 @@
 # Portfolio in Peril – Cardiff Edition
 
-A lightweight, continuous 40-minute trading simulation built with Flask. One laptop hosts the server, and teams join from their browsers to allocate portfolios across global asset buckets while reacting to macro news rounds inspired by a Black Monday-style crash and recovery. The UI mimics a Bloomberg terminal with live news tape, flow-sensitive market moves, and quick-read charts.
+A Bloomberg-coloured, 40-minute continuous trading simulation built with Flask. One laptop hosts; everyone else joins from a browser. The tape ticks every 3 seconds with synthetic markets that react to macro headlines and crowd flow. Players see only their own P&L; the host wallboard shows everything.
 
 ## Features
-- Eight predefined macro stages spread across a 40-minute continuous tape with narrative news and per-asset returns.
-- Terminal-style play screen with live news stream plus random crashwire snippets for atmosphere.
-- Interactive canvas charts for NAV path, every underlying security, and a crowd-flow adjusted market index that responds to aggregate allocations and trade shouts.
-- Teams register once and play from their browser; allocations are normalized server-side.
-- Voice-driven trade flow: players buzz a trade, shout it to the host, and the host accepts/rejects on the admin wallboard; fills nudge market impact.
-- Admin controls to oversee the tape (auto-advancing on the 40-minute clock), apply returns manually if desired, reset the game, and view the private leaderboard.
-- Leaderboard ranking by current NAV with round-by-round NAV history.
+- Continuous clock: 40 minutes of simulated “year” trading with a 3-second tick (roughly a day per tick). No rounds.
+- Live charts: canvas-driven paths for every asset, a market index, and each team’s NAV (private to them). Host wallboard aggregates the top NAV.
+- News flow: scheduled macro events plus ambient desk chatter create a scrolling ticker; big headlines hit prices immediately then decay.
+- Flow-aware pricing: allocations and accepted trade “yells” push prices via a crowding/skew factor with decay.
+- Shout-to-host trades: players press BUY/SELL, shout the price to the host, and the host accepts/rejects on `/admin`; fills move the tape.
+- Privacy: teams cannot see other teams’ P&L; only the host/admin sees multi-team standings and trade tape.
+- Bloomberg style: black/orange theme, compact grids, and projector-ready wallboard.
 
 ## Requirements
 - Python 3.10+
 - `flask` (install via `pip install flask`)
 
 ## How to run
-1. Install dependencies: `pip install flask` (or `pip install -r requirements.txt` if you add one).
-2. Optional: set an admin password via environment variable, e.g. `export ADMIN_PASSWORD=cardiffquant`.
-3. Start the server from the repo root: `python app.py` (binds to `0.0.0.0:5000` by default). Set `FLASK_PORT=7000` (or another free port) if 5000 is occupied; the app will auto-fall back to the next port if it detects the address is already in use. The tape runs continuously for ~40 minutes; scenario beats auto-advance on that clock.
-4. On the host laptop, open `http://localhost:<port>/admin` for controls and `http://localhost:<port>/` for the player landing page. Keep `/admin` projected for the “wallboard” with news, charts, and trade tape.
-5. Other players on the same network join via `http://<host-ip>:<port>`—no login beyond a team name. They cannot see other teams’ NAV or orders; only the host wallboard is multi-team.
+1. Install dependencies: `pip install flask` (or add a requirements file and install from it).
+2. Optional: set an admin password via environment variable, e.g. `export ADMIN_PASSWORD=cardiffquant`. You can also set `FLASK_SECRET` for the session key.
+3. Start the server from the repo root: `python app.py`. Defaults to `0.0.0.0:5000`; set `FLASK_PORT=7000` (or another free port) if needed. If the port is busy, the server falls back to the next one and prints a hint.
+4. Host laptop opens `http://localhost:<port>/admin` (for the wallboard) and `http://localhost:<port>/` (player landing). Keep `/admin` projected on the whiteboard.
+5. Other players join via `http://<host-ip>:<port>` on the same network. They only need a team name.
 
 ## Gameplay guide
-- **Register:** Teams enter a unique name on the landing page; the session stores the team identity.
-- **Allocate:** On `/play`, review the current round’s news and enter weights for any assets (non-negative numbers). Blank fields count as zero. Weights are normalized to sum to 1; if all are zero the submission is rejected. Every security shows a live mini-chart.
-- **Buzz a trade:** On `/play`, pick side/asset/price, hit the buzzer, and shout the trade to the host. The host accepts/rejects on `/admin`; fills add a temporary market impact.
-- **One submission per round:** After submitting for a round, the form is locked until the admin advances.
-- **Advancing rounds:** Stages auto-advance on the 40-minute clock; the admin can also nudge “Advance” to sync everyone. Teams that did not submit carry forward their last allocation (or default to 100% CASH for the first round).
-- **Flow impact:** When the admin advances, the engine adjusts returns by crowding (weights above/below an even split can boost or drag returns, capped at ±6%), and updates the live market index chart and news tape.
-- **Scoring:** NAV starts at 100.0 and compounds each round using submitted (or carried) weights and the round’s returns. After round 8, view final standings at `/leaderboard`.
-- **Privacy:** Players only see their own NAV and orders. The leaderboard is host-only during the session; project `/admin` if you want spectators to follow along.
+- **Register:** Enter a unique team name on `/`. Cookie-based identity; use separate browser profiles for multiple teams on one machine.
+- **Rebalance anytime:** On `/play`, set weights for each asset (non-negative). Blanks are zero. We normalise to 100% and apply from the next tick onward.
+- **Buzz a trade:** Hit BUY (green) or SELL (red), shout the trade to the host. Host accepts/rejects on `/admin`; accepted trades tilt prices with a temporary impact.
+- **Live charts:** NAV and asset paths update every ~3 seconds (one simulated day). News ticker blends scheduled macro shocks and random desk chatter.
+- **Wallboard:** The host sees pending trades, recent fills, news, market index, and per-asset mini charts. Only the host sees full rankings at `/leaderboard`.
+- **Session end:** After ~40 minutes the clock naturally expires; prices stop updating. Hit Reset on `/admin` to start over.
 
 ## Configuration notes
-- Asset list, round names, narratives, and returns are defined in `game_config.py`. Adjust these for different scenarios or return assumptions.
-- Stateful data (teams, allocations, NAVs, current round, trades) is kept in memory; restart the process to clear state or use the Reset button on `/admin`.
+- Asset list, baseline drifts/vols, and macro event timeline live in `game_config.py`.
+- State is in-memory; restarting the process or pressing Reset clears everything.
 
 ## Troubleshooting
-- If you see “team name taken”, pick a unique name; sessions are cookie-based, so use separate browser profiles for multiple teams on one machine.
-- Ensure all players can reach the host’s IP on the chosen port (default 5000); firewalls may need to allow local network access. If you see “address already in use,” either stop the conflicting process (macOS users: AirPlay Receiver sometimes uses 5000) or rerun with `FLASK_PORT=<free_port>`.
+- “Address already in use”: stop the conflicting process or set `FLASK_PORT` to a free port; the app will try the next port automatically.
+- “Team name taken”: choose a different name; names are case-insensitive.
+- Connectivity: ensure players can reach the host IP/port on the LAN; check firewalls if pages do not load.

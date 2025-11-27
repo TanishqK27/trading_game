@@ -1,5 +1,5 @@
 """
-Portfolio in Peril – Cardiff Edition
+Portfolio in Peril – Continuous Tape Edition
 
 How to run:
 1. pip install flask
@@ -25,22 +25,17 @@ from flask import (
     url_for,
 )
 
-from game_config import ASSETS, ASSET_FRIENDLY_NAMES, LIVE_NEWS_SNIPPETS, ROUNDS
+from game_config import ASSET_FRIENDLY_NAMES, ASSETS, LIVE_NEWS_SNIPPETS
 from models import GameState
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "devsecret")
 
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "cardiffquant")
+SESSION_DURATION_SECONDS = 40 * 60
+TICK_SECONDS = 3
 
-SESSION_DURATION_SECONDS = 40 * 60  # continuous 40 minute tape
-
-# Initialize global game state
-GAME_STATE = GameState(
-    assets=ASSETS,
-    rounds=ROUNDS,
-    total_duration_seconds=SESSION_DURATION_SECONDS,
-)
+GAME_STATE = GameState(total_duration_seconds=SESSION_DURATION_SECONDS, tick_seconds=TICK_SECONDS)
 
 
 def sync_state():
@@ -63,15 +58,13 @@ def index():
         if not team_name:
             flash("Please enter a team name.", "error")
             return render_template("index.html")
-
         try:
             GAME_STATE.register_team(team_name)
-        except ValueError as exc:  # duplicate or invalid
+        except ValueError as exc:
             flash(str(exc), "error")
             return render_template("index.html")
-
         session["team_name"] = team_name
-        flash("Welcome aboard! Head to the Play page to submit allocations.", "success")
+        flash("You are live on the tape — head to the Play tab.", "success")
         return redirect(url_for("play"))
 
     if team:
@@ -87,71 +80,38 @@ def play():
         flash("Please register your team first.", "error")
         return redirect(url_for("index"))
 
-    finished = GAME_STATE.is_finished
-    current_round_index = min(GAME_STATE.current_round, GAME_STATE.num_rounds)
-    current_round = (
-        GAME_STATE.rounds[current_round_index - 1]
-        if not finished and GAME_STATE.rounds
-        else None
-    )
-
     if request.method == "POST":
-        if finished:
-            flash("The game is finished. No more allocations accepted.", "error")
-            return redirect(url_for("play"))
-
-        if team.has_allocation(current_round_index):
-            flash("You have already submitted for this round.", "info")
-            return redirect(url_for("play"))
-
         weights: Dict[str, float] = {}
-        sum_weights = 0.0
+        total = 0.0
         for asset in ASSETS:
             raw = request.form.get(asset)
             if raw is None or raw == "":
                 continue
             try:
-                value = float(raw)
+                val = float(raw)
             except ValueError:
                 flash(f"Invalid number for {asset}.", "error")
                 return redirect(url_for("play"))
-            if value < 0:
+            if val < 0:
                 flash("Weights must be non-negative.", "error")
                 return redirect(url_for("play"))
-            weights[asset] = value
-            sum_weights += value
-
-        if sum_weights <= 0:
-            flash("Please provide at least one positive allocation.", "error")
+            weights[asset] = val
+            total += val
+        if total <= 0:
+            flash("Provide at least one positive weight.", "error")
             return redirect(url_for("play"))
-
-        normalized = {asset: weight / sum_weights for asset, weight in weights.items()}
         try:
-            GAME_STATE.record_allocation(team.name, current_round_index, normalized)
+            GAME_STATE.update_allocation(team.name, weights)
         except ValueError as exc:
             flash(str(exc), "error")
             return redirect(url_for("play"))
-
-        flash("Allocation submitted for this round!", "success")
+        flash("Allocation refreshed — watch your chart respond.", "success")
         return redirect(url_for("play"))
-
-    submitted = not finished and team.has_allocation(current_round_index)
-    nav_history = team.nav_history
-    last_return = None
-    if len(nav_history) >= 2:
-        last_return = (nav_history[-1] / nav_history[-2]) - 1
 
     return render_template(
         "play.html",
         team=team,
-        nav_history=nav_history,
-        last_return=last_return,
-        current_round=current_round,
-        current_round_index=current_round_index,
-        total_rounds=GAME_STATE.num_rounds,
-        submitted=submitted,
-        finished=finished,
-        seconds_left=GAME_STATE.seconds_left_in_round,
+        nav_history=team.nav_history,
         total_seconds_left=GAME_STATE.total_seconds_left,
         assets=ASSETS,
         asset_names=ASSET_FRIENDLY_NAMES,
@@ -196,17 +156,9 @@ def admin():
 
     if request.method == "POST":
         action = request.form.get("action")
-        if action == "advance":
-            if GAME_STATE.advance_round():
-                if GAME_STATE.is_finished:
-                    flash("Final round completed. Game over!", "success")
-                else:
-                    flash(f"Moved to round {GAME_STATE.current_round}.", "success")
-            else:
-                flash("Cannot advance; the game is already finished.", "info")
-        elif action == "reset":
+        if action == "reset":
             GAME_STATE.reset()
-            flash("Game has been reset.", "success")
+            flash("Simulation reset.", "success")
         elif action == "accept_trade":
             trade_id = request.form.get("trade_id", "")
             try:
@@ -223,18 +175,10 @@ def admin():
                 flash(str(exc), "error")
         return redirect(url_for("admin"))
 
-    current_round_index = GAME_STATE.current_round
-    submissions = 0
-    if not GAME_STATE.is_finished:
-        for team in GAME_STATE.teams.values():
-            if team.has_allocation(current_round_index):
-                submissions += 1
-
     return render_template(
         "admin.html",
         authorized=True,
         game_state=GAME_STATE,
-        submissions=submissions,
         assets=ASSETS,
         asset_names=ASSET_FRIENDLY_NAMES,
     )
@@ -245,12 +189,10 @@ def leaderboard():
     sync_state()
     authorized = session.get("is_admin", False)
     teams_sorted = sorted(GAME_STATE.teams.values(), key=lambda t: t.current_nav, reverse=True)
-    winner = teams_sorted[0] if GAME_STATE.is_finished and teams_sorted else None
     return render_template(
         "leaderboard.html",
         teams=teams_sorted if authorized else [get_team_from_session()] if get_team_from_session() else [],
         game_state=GAME_STATE,
-        winner=winner,
         authorized=authorized,
     )
 
@@ -260,55 +202,31 @@ def api_state():
     sync_state()
     team = get_team_from_session()
     authorized = session.get("is_admin", False)
-    current_round_index = min(GAME_STATE.current_round, GAME_STATE.num_rounds)
-    current_round = (
-        GAME_STATE.rounds[current_round_index - 1]
-        if not GAME_STATE.is_finished and GAME_STATE.rounds
-        else None
-    )
-
-    submissions = 0
-    if not GAME_STATE.is_finished:
-        for t in GAME_STATE.teams.values():
-            if t.has_allocation(current_round_index):
-                submissions += 1
 
     payload = {
-        "round": current_round_index,
-        "round_name": current_round.name if current_round else None,
-        "round_news": current_round.news.split("\n") if current_round else [],
-        "total_rounds": GAME_STATE.num_rounds,
         "is_finished": GAME_STATE.is_finished,
-        "seconds_left": GAME_STATE.seconds_left_in_round,
         "total_seconds_left": GAME_STATE.total_seconds_left,
         "market_index_history": GAME_STATE.market_index_history,
         "asset_index_histories": GAME_STATE.asset_index_histories,
-        "news_feed": GAME_STATE.news_feed[-20:],
-        "submissions": submissions,
+        "news_feed": GAME_STATE.news_feed[-60:],
         "total_teams": len(GAME_STATE.teams),
-        "round_duration": GAME_STATE.round_duration_seconds,
     }
 
     if authorized:
-        payload["pending_trades"] = [
-            t for t in GAME_STATE.trade_requests if t.get("status") == "pending"
+        payload["pending_trades"] = [t for t in GAME_STATE.trade_requests if t.get("status") == "pending"]
+        payload["trade_tape"] = GAME_STATE.trade_requests[-60:]
+        payload["teams"] = [
+            {"name": t.name, "nav": t.current_nav, "nav_history": t.nav_history, "allocation": t.allocation}
+            for t in GAME_STATE.teams.values()
         ]
-        payload["trade_tape"] = GAME_STATE.trade_requests[-30:]
     else:
-        payload["pending_trades"] = []
         payload["trade_tape_count"] = len(GAME_STATE.trade_requests)
 
     if team:
-        payload["team"] = {
-            "name": team.name,
-            "nav_history": team.nav_history,
-            "submitted": team.has_allocation(current_round_index),
-        }
+        payload["team"] = {"name": team.name, "nav_history": team.nav_history, "allocation": team.allocation}
 
     if LIVE_NEWS_SNIPPETS:
-        payload["random_news"] = random.sample(
-            LIVE_NEWS_SNIPPETS, k=min(10, len(LIVE_NEWS_SNIPPETS))
-        )
+        payload["random_news"] = random.sample(LIVE_NEWS_SNIPPETS, k=min(12, len(LIVE_NEWS_SNIPPETS)))
 
     return jsonify(payload)
 
@@ -324,12 +242,9 @@ if __name__ == "__main__":
     try:
         app.run(host=host, port=port, debug=False)
     except OSError as exc:
-        # Gracefully handle "address already in use" by trying the next port.
-        if getattr(exc, "errno", None) == 98:  # 98 = EADDRINUSE on Linux/macOS
+        if getattr(exc, "errno", None) == 98:
             alt_port = port + 1
-            print(
-                f"Port {port} is busy. Falling back to {alt_port}. Set FLASK_PORT to choose a port explicitly."
-            )
+            print(f"Port {port} is busy. Falling back to {alt_port}. Set FLASK_PORT to choose a port explicitly.")
             app.run(host=host, port=alt_port, debug=False)
         else:
             raise

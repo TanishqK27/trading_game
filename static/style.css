@@ -5,8 +5,8 @@
     --grid: #111827;
     --text: #e2e8f0;
     --muted: #7f8ea3;
-    --accent: #06d6a0;
-    --accent-2: #4ac1ff;
+    --accent: #f97316;
+    --accent-2: #f59e0b;
     --danger: #ef4444;
     --warning: #f59e0b;
 }
@@ -86,9 +86,12 @@ canvas { width: 100%; background: #0f172a; border-radius: 6px; }
 label { font-weight: 700; color: #cbd5e1; }
 input, button { width: 100%; padding: 0.65rem 0.8rem; border-radius: 8px; border: 1px solid #1f2937; background: #0c1321; color: var(--text); font-size: 1rem; }
 input:focus { outline: 2px solid var(--accent); }
-button { background: linear-gradient(90deg, #06d6a0, #22d3ee); color: #0b1220; font-weight: 800; cursor: pointer; border: none; letter-spacing: 0.3px; }
+button { background: linear-gradient(90deg, #f97316, #f59e0b); color: #0b1220; font-weight: 800; cursor: pointer; border: none; letter-spacing: 0.3px; }
 button:hover { opacity: 0.95; }
 button.danger { background: linear-gradient(90deg, #ef4444, #f97316); color: #fff; }
+.buy { background: linear-gradient(90deg, #16a34a, #22c55e); color: #04110a; }
+.sell { background: linear-gradient(90deg, #dc2626, #f97316); color: #fff; }
+.dual-buttons { display: grid; grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: 0.5rem; margin-top: 0.5rem; }
 
 .stacked-form { display: flex; flex-direction: column; gap: 0.6rem; }
 .grid-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.6rem; }
