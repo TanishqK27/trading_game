@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Dict, List
 
 from models import Round
+
+CURRENT_YEAR = datetime.utcnow().year
 
 ASSETS: List[str] = [
     "US_EQ",
@@ -31,8 +34,8 @@ ROUNDS: List[Round] = [
         index=1,
         name="Late-Cycle Boom",
         news=(
-            "US and European growth remain strong; inflation is contained.\n"
-            "Earnings surprises keep equities buoyant and credit spreads grind tighter."
+            f"{CURRENT_YEAR} tape opens strong with AI-capex euphoria; inflation is contained.\n"
+            "Earnings surprises keep equities buoyant and credit spreads grind tighter as desks run light risk."
         ),
         returns={
             "US_EQ": 0.08,
@@ -49,8 +52,8 @@ ROUNDS: List[Round] = [
         index=2,
         name="Frothy Valuations",
         news=(
-            "IPO pipeline is hot and margin debt climbs.\n"
-            "Analysts debate whether markets are priced for perfection while vol stays muted."
+            "IPO pipeline is hot, margin debt climbs, and passive inflows overwhelm dealers.\n"
+            "Analysts debate whether markets are priced for perfection while vol stays muted into the weekend."
         ),
         returns={
             "US_EQ": 0.06,
@@ -67,8 +70,8 @@ ROUNDS: List[Round] = [
         index=3,
         name="Black Monday Shock",
         news=(
-            "A sudden crash echoes 1987: program trading triggers a cascade.\n"
-            "Circuit breakers trip and liquidity dries up for hours before stabilising."
+            f"A sudden crash echoes 1987: algo hedges and CTA de-risking trigger a cascade ({CURRENT_YEAR} edition).\n"
+            "Circuit breakers trip and liquidity dries up for hours before stabilising; screens glow red."
         ),
         returns={
             "US_EQ": -0.22,
@@ -85,8 +88,8 @@ ROUNDS: List[Round] = [
         index=4,
         name="Central Bank Rescue",
         news=(
-            "Coordinated rate cuts and liquidity lines calm nerves.\n"
-            "Risk assets rebound while bond yields retrace the flight-to-quality move."
+            "Coordinated rate cuts, liquidity lines, and swap backstops calm nerves.\n"
+            "Risk assets rebound while bond yields retrace the flight-to-quality move; vol sellers creep back."
         ),
         returns={
             "US_EQ": 0.14,
@@ -121,8 +124,8 @@ ROUNDS: List[Round] = [
         index=6,
         name="Eurozone Debt Jitters",
         news=(
-            "Peripheral spreads widen as a mid-sized bank wobbles.\n"
-            "Safe havens catch a bid; EM is resilient thanks to reforms."
+            "Peripheral spreads widen as a mid-sized bank wobbles; ECB holds emergency presser.\n"
+            "Safe havens catch a bid; EM is resilient thanks to reforms and cleaner balance sheets."
         ),
         returns={
             "US_EQ": -0.015,

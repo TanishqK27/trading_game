@@ -42,7 +42,7 @@ class GameState:
         assets: List[str],
         rounds: List[Round],
         starting_nav: float = 100.0,
-        round_duration_seconds: int = 300,
+        total_duration_seconds: int = 40 * 60,
     ):
         self.assets = assets
         self.rounds = rounds
@@ -50,7 +50,9 @@ class GameState:
         self.starting_nav = starting_nav
         self.current_round = 1
         self.teams: Dict[str, Team] = {}
-        self.round_duration_seconds = round_duration_seconds
+        self.total_duration_seconds = total_duration_seconds
+        # Spread scenario beats evenly across the session to feel continuous.
+        self.round_duration_seconds = max(60, int(total_duration_seconds / max(1, self.num_rounds)))
         now = time.time()
         self.game_start_ts = now
         self.round_start_ts = now
@@ -69,10 +71,19 @@ class GameState:
 
     @property
     def seconds_left_in_round(self) -> int:
+        self.sync_to_time()
         if self.is_finished:
             return 0
         elapsed = int(time.time() - self.round_start_ts)
         remaining = self.round_duration_seconds - elapsed
+        return max(0, remaining)
+
+    @property
+    def total_seconds_left(self) -> int:
+        if self.is_finished:
+            return 0
+        elapsed_total = int(time.time() - self.game_start_ts)
+        remaining = self.total_duration_seconds - elapsed_total
         return max(0, remaining)
 
     def _timestamp_message(self, message: str) -> None:
@@ -197,7 +208,17 @@ class GameState:
             adjustment[asset] = max(min((skew * 0.5) + trade_skew, 0.08), -0.08)
         return adjustment
 
-    def advance_round(self) -> bool:
+    def sync_to_time(self) -> None:
+        """Auto-advance scenario beats based on the 40-minute clock."""
+        while (
+            not self.is_finished
+            and (time.time() - self.round_start_ts) >= self.round_duration_seconds
+        ):
+            progressed = self.advance_round(auto=True)
+            if not progressed:
+                break
+
+    def advance_round(self, auto: bool = False) -> bool:
         if self.is_finished:
             return False
 
@@ -237,8 +258,9 @@ class GameState:
             next_val = self.asset_index_histories[asset][-1] * (1 + asset_return)
             self.asset_index_histories[asset].append(next_val)
 
+        tag = "auto" if auto else "host"
         self._timestamp_message(
-            f"Round {self.current_round} settled with flow-adjusted market move {market_return*100:.2f}%"
+            f"[{tag}] Round {self.current_round} settled with flow-adjusted market move {market_return*100:.2f}%"
         )
         self.current_round += 1
         self.round_start_ts = time.time()

@@ -12,6 +12,7 @@
         <div class="panel-top">
             <div>
                 <p class="lede">Clock remaining in round: <strong id="round-remaining">{{ game_state.seconds_left_in_round }}</strong>s · Total teams: {{ game_state.teams|length }}</p>
+                <p class="lede">Session remaining: <strong id="session-remaining">{{ game_state.total_seconds_left }}</strong>s · Continuous 40-minute tape</p>
                 <p>Current round: {{ game_state.current_round if not game_state.is_finished else 'Finished' }}</p>
                 <p>Submissions this round: <strong id="round-submissions">{{ submissions }}</strong></p>
             </div>
@@ -190,6 +191,9 @@ async function refreshHost() {
         const res = await fetch('{{ url_for('api_state') }}');
         const data = await res.json();
         document.getElementById('round-remaining').textContent = data.seconds_left;
+        if (data.total_seconds_left !== undefined) {
+            document.getElementById('session-remaining').textContent = data.total_seconds_left;
+        }
         document.getElementById('round-submissions').textContent = data.submissions;
         if (data.market_index_history) {
             drawLine(hostMarket, data.market_index_history, '#22c55e', 'Crowd market');

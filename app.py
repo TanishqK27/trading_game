@@ -33,10 +33,18 @@ app.secret_key = os.getenv("FLASK_SECRET", "devsecret")
 
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "cardiffquant")
 
-ROUND_DURATION_SECONDS = 300  # 8 rounds -> ~40 minutes total
+SESSION_DURATION_SECONDS = 40 * 60  # continuous 40 minute tape
 
 # Initialize global game state
-GAME_STATE = GameState(assets=ASSETS, rounds=ROUNDS, round_duration_seconds=ROUND_DURATION_SECONDS)
+GAME_STATE = GameState(
+    assets=ASSETS,
+    rounds=ROUNDS,
+    total_duration_seconds=SESSION_DURATION_SECONDS,
+)
+
+
+def sync_state():
+    GAME_STATE.sync_to_time()
 
 
 def get_team_from_session():
@@ -48,6 +56,7 @@ def get_team_from_session():
 
 @app.route("/", methods=["GET", "POST"])
 def index():
+    sync_state()
     team = get_team_from_session()
     if request.method == "POST":
         team_name = request.form.get("team_name", "").strip()
@@ -72,6 +81,7 @@ def index():
 
 @app.route("/play", methods=["GET", "POST"])
 def play():
+    sync_state()
     team = get_team_from_session()
     if not team:
         flash("Please register your team first.", "error")
@@ -142,6 +152,7 @@ def play():
         submitted=submitted,
         finished=finished,
         seconds_left=GAME_STATE.seconds_left_in_round,
+        total_seconds_left=GAME_STATE.total_seconds_left,
         assets=ASSETS,
         asset_names=ASSET_FRIENDLY_NAMES,
         assets_meta=[{"code": code, "name": ASSET_FRIENDLY_NAMES.get(code, code)} for code in ASSETS],
@@ -169,6 +180,7 @@ def trade_request():
 
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
+    sync_state()
     authorized = session.get("is_admin", False)
     provided_password = request.values.get("password")
     if provided_password:
@@ -230,19 +242,24 @@ def admin():
 
 @app.route("/leaderboard")
 def leaderboard():
+    sync_state()
+    authorized = session.get("is_admin", False)
     teams_sorted = sorted(GAME_STATE.teams.values(), key=lambda t: t.current_nav, reverse=True)
     winner = teams_sorted[0] if GAME_STATE.is_finished and teams_sorted else None
     return render_template(
         "leaderboard.html",
-        teams=teams_sorted,
+        teams=teams_sorted if authorized else [get_team_from_session()] if get_team_from_session() else [],
         game_state=GAME_STATE,
         winner=winner,
+        authorized=authorized,
     )
 
 
 @app.route("/api/state")
 def api_state():
+    sync_state()
     team = get_team_from_session()
+    authorized = session.get("is_admin", False)
     current_round_index = min(GAME_STATE.current_round, GAME_STATE.num_rounds)
     current_round = (
         GAME_STATE.rounds[current_round_index - 1]
@@ -263,15 +280,23 @@ def api_state():
         "total_rounds": GAME_STATE.num_rounds,
         "is_finished": GAME_STATE.is_finished,
         "seconds_left": GAME_STATE.seconds_left_in_round,
+        "total_seconds_left": GAME_STATE.total_seconds_left,
         "market_index_history": GAME_STATE.market_index_history,
         "asset_index_histories": GAME_STATE.asset_index_histories,
         "news_feed": GAME_STATE.news_feed[-20:],
         "submissions": submissions,
         "total_teams": len(GAME_STATE.teams),
-        "round_duration": ROUND_DURATION_SECONDS,
-        "pending_trades": [t for t in GAME_STATE.trade_requests if t.get("status") == "pending"],
-        "trade_tape": GAME_STATE.trade_requests[-30:],
+        "round_duration": GAME_STATE.round_duration_seconds,
     }
+
+    if authorized:
+        payload["pending_trades"] = [
+            t for t in GAME_STATE.trade_requests if t.get("status") == "pending"
+        ]
+        payload["trade_tape"] = GAME_STATE.trade_requests[-30:]
+    else:
+        payload["pending_trades"] = []
+        payload["trade_tape_count"] = len(GAME_STATE.trade_requests)
 
     if team:
         payload["team"] = {

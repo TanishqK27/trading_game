@@ -4,11 +4,12 @@
     <div class="panel-top">
         <div>
             <p class="eyebrow">LIVE — {{ team.name }}</p>
-            <h2>Round {{ current_round_index }} of {{ total_rounds }}{% if current_round %} · {{ current_round.name }}{% endif %}</h2>
-            <p class="lede">React to the crash and recovery in real time. Allocations normalise to 100%; big flows nudge prices.</p>
+            <h2>Stage {{ current_round_index }} of {{ total_rounds }}{% if current_round %} · {{ current_round.name }}{% endif %}</h2>
+            <p class="lede">Continuous 40-minute tape: react to the 1987-style cascade with a modern twist. Allocations normalise to 100%; your flows and shouts move the tape.</p>
         </div>
         <div class="status-block">
-            <div class="status-line">Round clock <span id="round-timer">{{ seconds_left }}s</span></div>
+            <div class="status-line">Stage clock <span id="round-timer">{{ seconds_left }}s</span></div>
+            <div class="status-line">Session <span id="session-timer">{{ total_seconds_left }}s</span></div>
             <div class="status-line">NAV <span class="nav-large">£{{ '%.2f'|format(team.current_nav) }}m</span></div>
             {% if last_return is not none %}
                 <div class="status-line">Last return <span>{{ (last_return * 100) | round(2) }}%</span></div>
@@ -68,7 +69,7 @@
             <h3>Shout a trade</h3>
             <span class="pill">Host confirmation</span>
         </div>
-        <p class="lede">Press the buzzer, shout your order to the host, and wait for a fill.</p>
+        <p class="lede">Press the buzzer, shout your order to the host, and wait for a fill. Loud players can swing the tape.</p>
         <form method="post" action="{{ url_for('trade_request') }}" class="grid-form">
             <label>Side
                 <select name="side">
@@ -102,7 +103,7 @@
             <p>You&apos;ve submitted for this round. Waiting for the admin to advance.</p>
         {% else %}
             <form method="post" class="stacked-form">
-                <p class="hint">Enter non-negative weights. We normalise to 100%; blanks are zero.</p>
+                <p class="hint">Enter non-negative weights. We normalise to 100%; blanks are zero. Other teams cannot see your P&L or orders.</p>
                 {% for asset in assets %}
                     <label for="{{ asset }}">{{ asset }} – {{ asset_names[asset] }}</label>
                     <input type="number" step="0.01" min="0" name="{{ asset }}" id="{{ asset }}" placeholder="0">
@@ -118,6 +119,7 @@ const navCanvas = document.getElementById('navChart');
 const marketCanvas = document.getElementById('marketChart');
 const newsBox = document.getElementById('live-news');
 const timerEl = document.getElementById('round-timer');
+const sessionTimerEl = document.getElementById('session-timer');
 let lastNewsCount = 0;
 const audioCtx = window.AudioContext ? new AudioContext() : null;
 const assetGrid = document.getElementById('assetGrid');
@@ -218,6 +220,11 @@ async function refreshState() {
         const data = await res.json();
         if (data.seconds_left !== undefined && timerEl) {
             timerEl.textContent = `${data.seconds_left}s`;
+        }
+        if (data.total_seconds_left !== undefined && sessionTimerEl) {
+            const minutes = Math.floor(data.total_seconds_left / 60);
+            const seconds = data.total_seconds_left % 60;
+            sessionTimerEl.textContent = `${minutes}m ${seconds.toString().padStart(2,'0')}s`;
         }
         if (data.team && data.team.nav_history) {
             drawLine(navCanvas, data.team.nav_history, '#22c55e', 'Team NAV');

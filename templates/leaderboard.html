@@ -2,6 +2,9 @@
 {% block content %}
 <section class="card">
     <h2>Leaderboard</h2>
+    {% if not authorized %}
+        <p class="lede">Leaderboard is private to the host wallboard. You can only see your own trajectory.</p>
+    {% endif %}
     {% if winner %}
         <div class="winner">
             <strong>Game over – Winner: {{ winner.name }}</strong>
@@ -15,9 +18,10 @@
 
     <p class="lede">Market index: {{ '%.2f'|format(game_state.market_index_history[-1]) }} · Round {{ game_state.current_round if not game_state.is_finished else 'Finished' }}</p>
 
+    {% if teams %}
     <table class="leaderboard">
         <tr>
-            <th>Rank</th>
+            <th>{% if authorized %}Rank{% else %}You{% endif %}</th>
             <th>Team</th>
             <th>Current NAV</th>
             <th>Last return</th>
@@ -26,7 +30,7 @@
         {% for team in teams %}
             {% set lr = team.last_return() %}
             <tr>
-                <td>{{ loop.index }}</td>
+                <td>{% if authorized %}{{ loop.index }}{% else %}—{% endif %}</td>
                 <td>{{ team.name }}</td>
                 <td>£{{ '%.2f'|format(team.current_nav) }}m</td>
                 <td>
@@ -44,5 +48,8 @@
             </tr>
         {% endfor %}
     </table>
+    {% else %}
+        <p class="hint">No team data to display. Ask the host for the wallboard view.</p>
+    {% endif %}
 </section>
 {% endblock %}
